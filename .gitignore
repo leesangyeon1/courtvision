@@ -1,0 +1,27 @@
+# python
+__pycache__/
+*.pyc
+.venv/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+courtvision.db*
+
+# node
+node_modules/
+web/dist/
+*.tsbuildinfo
+
+# xcode
+ios/*.xcodeproj
+ios/DerivedData/
+xcuserdata/
+*.xcresult
+
+# os / editors
+.DS_Store
+.idea/
+.vscode/
+
+# env
+.env
