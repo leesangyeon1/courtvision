@@ -50,17 +50,14 @@ final class ShotDetector {
         guard now - lastEmit >= cooldown else { return }
 
         let expanded = rim.insetBy(dx: -rim.width * 0.75, dy: -rim.height * 0.75)
-        let nearRadius = Double(max(expanded.width, expanded.height))
-        let rimCenter = CGPoint(x: rim.midX, y: rim.midY)
 
         var enteredFromAbove = false
         var madeExit = false
-        var minDistToRim = Double.greatestFiniteMagnitude
+        var wasInsideExpanded = false
 
         for i in 0..<t.points.count {
             let p = t.points[i]
-            minDistToRim = min(minDistToRim,
-                               hypot(Double(p.x - rimCenter.x), Double(p.y - rimCenter.y)))
+            if expanded.contains(p) { wasInsideExpanded = true }
 
             if !enteredFromAbove, i > 0, expanded.contains(p) {
                 let prev = t.points[i - 1]
@@ -84,10 +81,10 @@ final class ShotDetector {
         let decision: Bool?
         if enteredFromAbove && madeExit {
             decision = true                                   // through the rim
-        } else if minDistToRim <= nearRadius && lastOutside {
-            decision = false                                  // reached rim area, diverged
+        } else if wasInsideExpanded && lastOutside {
+            decision = false                                  // reached rim area, left without a through-rim exit
         } else {
-            decision = nil                                    // still in flight / never near
+            decision = nil                                    // still in flight — not decided yet
         }
         guard let made = decision else { return }
 

@@ -44,7 +44,7 @@ struct Player: Codable, Hashable, Identifiable, Sendable {
 /// {"homography": [9 floats, row-major 3x3], "imagePoints": [[x,y]...], "courtPoints": [[x,y]...]}
 struct Calibration: Codable, Hashable, Sendable {
     var homography: [Double]
-    var imagePoints: [[Double]]   // normalized view coords, top-left origin
+    var imagePoints: [[Double]]   // buffer-space (capture-device) normalized coords, top-left origin
     var courtPoints: [[Double]]   // feet on the standard half court
 }
 

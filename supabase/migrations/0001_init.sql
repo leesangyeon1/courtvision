@@ -60,12 +60,49 @@ alter table public.players  enable row level security;
 alter table public.sessions enable row level security;
 alter table public.events   enable row level security;
 
-create policy "own players"  on public.players
+create policy "own players" on public.players
   for all using (user_id = auth.uid()) with check (user_id = auth.uid());
-create policy "own sessions" on public.sessions
-  for all using (user_id = auth.uid()) with check (user_id = auth.uid());
-create policy "own events"   on public.events
-  for all using (user_id = auth.uid()) with check (user_id = auth.uid());
+
+-- Write policies verify ownership of referenced rows too: FK checks bypass
+-- RLS, so without these an authenticated user could attach sessions/events
+-- to another user's player/session (and probe for UUID existence).
+create policy "select own sessions" on public.sessions
+  for select using (user_id = auth.uid());
+create policy "insert own sessions" on public.sessions
+  for insert with check (
+    user_id = auth.uid()
+    and exists (select 1 from public.players p
+                where p.id = player_id and p.user_id = auth.uid()));
+create policy "update own sessions" on public.sessions
+  for update using (user_id = auth.uid())
+  with check (
+    user_id = auth.uid()
+    and exists (select 1 from public.players p
+                where p.id = player_id and p.user_id = auth.uid()));
+create policy "delete own sessions" on public.sessions
+  for delete using (user_id = auth.uid());
+
+create policy "select own events" on public.events
+  for select using (user_id = auth.uid());
+create policy "insert own events" on public.events
+  for insert with check (
+    user_id = auth.uid()
+    and exists (select 1 from public.sessions s
+                where s.id = session_id and s.user_id = auth.uid())
+    and (player_id is null
+         or exists (select 1 from public.players p
+                    where p.id = player_id and p.user_id = auth.uid())));
+create policy "update own events" on public.events
+  for update using (user_id = auth.uid())
+  with check (
+    user_id = auth.uid()
+    and exists (select 1 from public.sessions s
+                where s.id = session_id and s.user_id = auth.uid())
+    and (player_id is null
+         or exists (select 1 from public.players p
+                    where p.id = player_id and p.user_id = auth.uid())));
+create policy "delete own events" on public.events
+  for delete using (user_id = auth.uid());
 
 -- ---------------------------------------------------------------- views
 -- Server-derived aggregates (V1 DoD: dashboard math must come from here,

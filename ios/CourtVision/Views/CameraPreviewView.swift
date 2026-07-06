@@ -1,18 +1,31 @@
 import AVFoundation
 import SwiftUI
 
+/// Shared handle to the live AVCaptureVideoPreviewLayer so SwiftUI views can
+/// convert between view (layer) points and buffer (capture-device) normalized
+/// coordinates. Published so overlays re-render once the layer exists.
+final class PreviewLayerHolder: ObservableObject {
+    weak var layer: AVCaptureVideoPreviewLayer? {
+        didSet { objectWillChange.send() }
+    }
+}
+
 /// Hosts the AVCaptureVideoPreviewLayer for the calibration/record screens.
 ///
-/// V1 coordinate note: taps and overlays are normalized against the VIEW while
-/// the preview uses .resizeAspectFill — with the phone framing the court in
-/// landscape-ish 16:9 the difference is small; documented approximation.
+/// Coordinate note: the portrait-locked UI shows a landscape sensor buffer
+/// through .resizeAspectFill, so raw view fractions do NOT match buffer
+/// coordinates. Taps and overlays must round-trip through the preview layer
+/// (captureDevicePointConverted / layerPointConverted) via `holder`.
 struct CameraPreviewView: UIViewRepresentable {
     let camera: CameraService
+    let holder: PreviewLayerHolder
 
     func makeUIView(context: Context) -> PreviewUIView {
         let view = PreviewUIView()
         view.videoPreviewLayer.session = camera.captureSession
         view.videoPreviewLayer.videoGravity = .resizeAspectFill
+        let layer = view.videoPreviewLayer
+        DispatchQueue.main.async { holder.layer = layer }  // publish outside the view update
         return view
     }
 

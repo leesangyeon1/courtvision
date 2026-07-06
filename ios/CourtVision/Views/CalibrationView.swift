@@ -4,14 +4,17 @@ import SwiftUI
 /// 1. Tap the 4 numbered landmarks in order — left/right baseline corners,
 ///    then left/right free-throw-line corners of the key (16 ft lane).
 /// 2. Drag the orange box onto the rim.
-/// 3. Save → DLT homography (view coords → court feet) stored as jsonb on the
-///    session; the rim box persists on-device.
+/// 3. Save → DLT homography (buffer coords → court feet) stored as jsonb on
+///    the session; the rim box persists on-device.
 struct CalibrationView: View {
     let session: Session
     @EnvironmentObject private var flow: FlowModel
     @ObservedObject private var rimDetector = ManualRimDetector.shared
+    @StateObject private var previewHolder = PreviewLayerHolder()
 
-    @State private var points: [CGPoint] = []   // normalized view coords, top-left origin
+    /// Buffer-space (capture-device) normalized coords, top-left origin — the
+    /// same space Vision trajectories/pose land in after their y-flip.
+    @State private var points: [CGPoint] = []
     @State private var errorMessage: String?
     @State private var busy = false
     @State private var cameraReady = false
@@ -37,7 +40,7 @@ struct CalibrationView: View {
             GeometryReader { geo in
                 ZStack {
                     if cameraReady {
-                        CameraPreviewView(camera: flow.camera)
+                        CameraPreviewView(camera: flow.camera, holder: previewHolder)
                     } else {
                         Rectangle().fill(.black)
                         Text(errorMessage ?? "Starting camera…")
@@ -46,18 +49,19 @@ struct CalibrationView: View {
                     }
 
                     ForEach(points.indices, id: \.self) { i in
-                        marker(index: i)
-                            .position(x: points[i].x * geo.size.width,
-                                      y: points[i].y * geo.size.height)
+                        if let layer = previewHolder.layer {
+                            marker(index: i)
+                                .position(layer.layerPointConverted(fromCaptureDevicePoint: points[i]))
+                        }
                     }
 
-                    rimBox(in: geo.size)
+                    rimBox()
                 }
                 .contentShape(Rectangle())
                 .onTapGesture { location in
-                    guard points.count < 4, geo.size.width > 0, geo.size.height > 0 else { return }
-                    points.append(CGPoint(x: location.x / geo.size.width,
-                                          y: location.y / geo.size.height))
+                    guard points.count < 4, let layer = previewHolder.layer else { return }
+                    // View tap → buffer-space point (top-left origin).
+                    points.append(layer.captureDevicePointConverted(fromLayerPoint: location))
                 }
             }
 
@@ -91,6 +95,7 @@ struct CalibrationView: View {
                 errorMessage = error.localizedDescription
             }
             if rimDetector.rimRect == nil {
+                // Default starting box, buffer space; the user drags it onto the rim.
                 rimDetector.rimRect = CGRect(x: 0.45, y: 0.2, width: 0.12, height: 0.07)
             }
         }
@@ -103,23 +108,37 @@ struct CalibrationView: View {
         }
     }
 
+    /// The rim rect is stored in buffer space (capture-device normalized,
+    /// top-left origin); it is converted to view coords only for display.
     @ViewBuilder
-    private func rimBox(in size: CGSize) -> some View {
-        if let rim = rimDetector.rimRect {
+    private func rimBox() -> some View {
+        if let rim = rimDetector.rimRect, let layer = previewHolder.layer {
+            let rect = layer.layerRectConverted(fromMetadataOutputRect: rim)
             Rectangle()
                 .stroke(.orange, lineWidth: 3)
-                .frame(width: rim.width * size.width, height: rim.height * size.height)
+                .frame(width: rect.width, height: rect.height)
                 .overlay(alignment: .top) {
                     Text("RIM").font(.caption2.bold()).foregroundStyle(.orange).offset(y: -16)
                 }
-                .position(x: rim.midX * size.width, y: rim.midY * size.height)
+                .position(x: rect.midX, y: rect.midY)
                 .gesture(
                     DragGesture()
                         .onChanged { value in
-                            guard size.width > 0, size.height > 0 else { return }
-                            var r = rim
-                            r.origin.x = min(max(value.location.x / size.width - r.width / 2, 0), 1 - r.width)
-                            r.origin.y = min(max(value.location.y / size.height - r.height / 2, 0), 1 - r.height)
+                            // Recentre the on-screen box at the drag point, then
+                            // rebuild the buffer-space rect from two converted
+                            // corners (the view→buffer transform may rotate).
+                            let centered = CGRect(x: value.location.x - rect.width / 2,
+                                                  y: value.location.y - rect.height / 2,
+                                                  width: rect.width,
+                                                  height: rect.height)
+                            let c1 = layer.captureDevicePointConverted(
+                                fromLayerPoint: CGPoint(x: centered.minX, y: centered.minY))
+                            let c2 = layer.captureDevicePointConverted(
+                                fromLayerPoint: CGPoint(x: centered.maxX, y: centered.maxY))
+                            var r = CGRect(x: min(c1.x, c2.x), y: min(c1.y, c2.y),
+                                           width: abs(c2.x - c1.x), height: abs(c2.y - c1.y))
+                            r.origin.x = min(max(r.origin.x, 0), 1 - r.width)
+                            r.origin.y = min(max(r.origin.y, 0), 1 - r.height)
                             rimDetector.rimRect = r
                         }
                 )

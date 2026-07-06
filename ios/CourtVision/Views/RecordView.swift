@@ -10,6 +10,7 @@ struct RecordView: View {
     @EnvironmentObject private var flow: FlowModel
     @StateObject private var model = RecordModel()
     @ObservedObject private var rimDetector = ManualRimDetector.shared
+    @StateObject private var previewHolder = PreviewLayerHolder()
     @State private var busy = false
     @State private var errorMessage: String?
 
@@ -17,22 +18,22 @@ struct RecordView: View {
         VStack(spacing: 0) {
             GeometryReader { geo in
                 ZStack {
-                    CameraPreviewView(camera: flow.camera)
+                    CameraPreviewView(camera: flow.camera, holder: previewHolder)
 
-                    Canvas { context, size in
+                    // Trajectory points and the rim rect are buffer-space
+                    // (capture-device normalized, top-left origin); convert
+                    // through the preview layer for drawing.
+                    Canvas { context, _ in
+                        guard let layer = previewHolder.layer else { return }
                         // Ball trajectory (latest observation)
                         for p in model.trajectoryPoints {
-                            let rect = CGRect(x: p.x * size.width - 3,
-                                              y: p.y * size.height - 3,
-                                              width: 6, height: 6)
+                            let vp = layer.layerPointConverted(fromCaptureDevicePoint: p)
+                            let rect = CGRect(x: vp.x - 3, y: vp.y - 3, width: 6, height: 6)
                             context.fill(Path(ellipseIn: rect), with: .color(.yellow))
                         }
                         // Rim box
                         if let rim = rimDetector.rimRect {
-                            let rect = CGRect(x: rim.origin.x * size.width,
-                                              y: rim.origin.y * size.height,
-                                              width: rim.width * size.width,
-                                              height: rim.height * size.height)
+                            let rect = layer.layerRectConverted(fromMetadataOutputRect: rim)
                             context.stroke(Path(rect), with: .color(.orange), lineWidth: 3)
                         }
                     }
@@ -161,6 +162,9 @@ final class RecordModel: ObservableObject {
 
         // Shooter's floor position: ankle midpoint at release; if the pose was
         // not visible, fall back to the ball's release point (documented).
+        // Both are buffer-space points (capture-device normalized, top-left
+        // origin) — the same space as the calibration points behind the
+        // homography.
         let pose = poseService.sample(nearest: shot.timestamp)
         let imagePoint = pose?.ankleMidpoint ?? shot.releasePoint
         let court = homography.apply(imagePoint)   // feet
