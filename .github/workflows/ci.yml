@@ -6,15 +6,6 @@ on:
   pull_request:
 
 jobs:
-  server:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-      - run: pip install -e './server[dev]'
-      - run: pytest server/tests -q
   web:
     runs-on: ubuntu-latest
     steps:
@@ -25,4 +16,6 @@ jobs:
       - run: npm ci
         working-directory: web
       - run: npm run build
+        working-directory: web
+      - run: npm test --if-present
         working-directory: web

@@ -23,5 +23,7 @@ xcuserdata/
 .idea/
 .vscode/
 
-# env
+# env / deploy
 .env
+.env.local
+.vercel/

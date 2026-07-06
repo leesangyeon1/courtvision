@@ -1,44 +1,56 @@
 # CourtVision
 
 Basketball shooting analytics in the class of HomeCourt / Ball AI / SwingVision /
-Rapsodo MLM: the phone does all the computer vision on-device, the server is a
-thin metric relay, and a web dashboard shows shooting analytics live.
+Rapsodo MLM: the phone does all the computer vision **on-device**, Supabase is
+the entire backend, and a web dashboard on Vercel shows shooting analytics live.
 
 **V1 scope (this repo): shooting metrics only** — make/miss, shot category,
 court location (homography → heatmap), and shooting splits (FG% / 3P% / FT% /
 eFG% / TS%), live on the dashboard within 10 seconds.
 
 ```
-iOS app (on-device CV) ──WebSocket/REST──▶ FastAPI ──▶ Postgres + Redis
-                                              │
-                                    WebSocket push / 10s poll
-                                              ▼
-                                       React dashboard
+iOS app (on-device CV) ──insert──▶ Supabase (Postgres + Auth + Realtime)
+                                        │
+                          Realtime push / 10 s poll of SQL views
+                                        ▼
+                          React dashboard (Vercel)
 ```
+
+No servers to run: aggregates are Postgres **views**, live updates are Supabase
+**Realtime**, auth is Supabase **Auth**. RLS scopes every row to its owner.
 
 ## Layout
 
 | Path | What |
 |---|---|
-| `server/` | FastAPI thin relay: validate → store → aggregate → push. **No CV here.** |
-| `server/app/schemas.py` | **The contract.** Pydantic single source of truth (camelCase wire). |
-| `web/` | React 18 + Vite + TanStack Query dashboard (WS push + guaranteed 10 s poll). |
+| `supabase/migrations/0001_init.sql` | **The contract.** Tables, RLS, aggregate views, realtime. |
+| `web/` | React 18 + Vite + TanStack Query dashboard (Realtime push + 10 s poll). |
 | `ios/` | SwiftUI capture app: Vision trajectory + pose, rim detection, homography. |
-| `tools/` | `simulate_session.py` — replays a scripted session; acceptance harness. |
+| `tools/simulate_session.py` | Replays a scripted session against your Supabase project. |
+
+## Setup (once)
+
+1. Create a project at [supabase.com](https://supabase.com) → SQL editor →
+   paste `supabase/migrations/0001_init.sql` → run.
+   (Or `supabase link && supabase db push` with the CLI.)
+2. `web/.env.local`:
+   ```
+   VITE_SUPABASE_URL=https://<ref>.supabase.co
+   VITE_SUPABASE_ANON_KEY=<anon key>
+   ```
+3. iOS: set the same URL + anon key in `ios/CourtVision/Config.swift`.
 
 ## Run
 
 ```sh
-docker compose up            # api :8000 + postgres + redis
-cd web && npm i && npm run dev   # dashboard on :5173
+cd web && npm i && npm run dev     # dashboard on :5173
+cd web && vercel --prod            # deploy (set the two env vars in Vercel too)
+python3 tools/simulate_session.py  # fake shooter: proves the live pipeline
 ```
-
-Local dev without Docker: `cd server && pip install -e '.[dev]' && uvicorn app.main:app`
-(uses SQLite + in-process live hub; Postgres/Redis engage via env vars).
 
 ## The 10-second contract
 
-Every shot the app detects must appear on the dashboard within 10 s:
-WebSocket push is the fast path (<1 s), a 10 s poll of
-`GET /api/sessions/:id/live` is the guaranteed fallback. No hardcoded data
-anywhere — if the server is down, the dashboard shows *reconnecting*, not fakes.
+Every shot the app detects must appear on the dashboard within 10 s: Supabase
+Realtime is the fast path (<1 s), a 10 s poll of the `session_box_scores` view
+is the guaranteed fallback. No hardcoded data anywhere — if Supabase is
+unreachable, the dashboard shows *reconnecting*, not fakes.
