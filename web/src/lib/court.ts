@@ -44,7 +44,9 @@ export interface ZoneCell { x: number; y: number; w: number; h: number }
  * (free-throw shots are classified by mode, not position) drawn on top.
  */
 export function zoneRegions(step = 1): Record<Zone, ZoneCell[]> {
-  const regions = Object.fromEntries(ZONES.map((z) => [z, []])) as Record<Zone, ZoneCell[]>
+  const regions = Object.fromEntries(
+    ZONES.map((z) => [z, [] as ZoneCell[]]),
+  ) as unknown as Record<Zone, ZoneCell[]>
   for (let y = 0; y < COURT_H; y += step) {
     for (let x = 0; x < COURT_W; x += step) {
       regions[zoneFor(x + step / 2, y + step / 2)].push({ x, y, w: step, h: step })
