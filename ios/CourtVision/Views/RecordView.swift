@@ -324,7 +324,10 @@ final class RecordModel: ObservableObject {
             // is (or this end's tap anchor), not the most confident one.
             let anchor = shotDetector.rimRects.first.map { CGPoint(x: $0.midX, y: $0.midY) }
                 ?? rimAnchors[attackingTeam]
-            if let r = RimFinder.pickRim(candidates: rims, near: anchor) {
+            // Only follow detections near the rim we're locked on — a side
+            // hoop elsewhere in frame must not steal the box.
+            if let r = RimFinder.pickRim(candidates: rims, near: anchor,
+                                         within: anchor != nil ? 0.2 : nil) {
                 let padded = r.insetBy(dx: -r.width * 0.15, dy: -r.height * 0.15)
                 if let current = shotDetector.rimRects.first,
                    hypot(padded.midX - current.midX, padded.midY - current.midY) > 0.15 {
@@ -346,7 +349,8 @@ final class RecordModel: ObservableObject {
             // we're swinging toward.
             let otherTeam = attackingTeam == "A" ? "B" : "A"
             let target = rimAnchors[otherTeam] ?? rimAnchors[attackingTeam]
-            if let r = RimFinder.pickRim(candidates: rims, near: target) {
+            if let r = RimFinder.pickRim(candidates: rims, near: target,
+                                         within: target != nil ? 0.25 : nil) {
                 lastRimSeen = Date()
                 ManualRimDetector.shared.rimRects =
                     [r.insetBy(dx: -r.width * 0.15, dy: -r.height * 0.15)]

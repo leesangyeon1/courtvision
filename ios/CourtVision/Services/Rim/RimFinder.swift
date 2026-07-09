@@ -12,20 +12,31 @@ enum RimFinder {
     /// isn't in the bundle.
     private static let hoopModel = CoreMLRimDetector()
 
-    /// Detects up to `maxCount` rims, sorted left → right (rim 1 = left).
-    /// Trained CNN first; orange-blob heuristic as fallback (unusual rims,
-    /// model miss). Empty when neither finds anything.
     /// Which detected rim is THE rim: nearest to `anchor` (a user tap or the
     /// previously tracked position). No anchor → most confident (first).
     /// Practice gyms hang 6+ side hoops; proximity beats confidence there.
-    static func pickRim(candidates: [CGRect], near anchor: CGPoint?) -> CGRect? {
+    ///
+    /// `within` caps the accepted distance from the anchor: a tap-designated
+    /// rim must never be stolen by a detection elsewhere in the frame —
+    /// when every candidate is farther than the cap, nil is returned and the
+    /// caller keeps what the user set.
+    static func pickRim(candidates: [CGRect], near anchor: CGPoint?,
+                        within maxDistance: CGFloat? = nil) -> CGRect? {
         guard let anchor else { return candidates.first }
-        return candidates.min {
+        let nearest = candidates.min {
             hypot($0.midX - anchor.x, $0.midY - anchor.y)
                 < hypot($1.midX - anchor.x, $1.midY - anchor.y)
         }
+        if let maxDistance, let nearest,
+           hypot(nearest.midX - anchor.x, nearest.midY - anchor.y) > maxDistance {
+            return nil
+        }
+        return nearest
     }
 
+    /// Detects up to `maxCount` rims, sorted left → right (rim 1 = left).
+    /// Trained CNN first; orange-blob heuristic as fallback (unusual rims,
+    /// model miss). Empty when neither finds anything.
     static func detectRims(in pixelBuffer: CVPixelBuffer, maxCount: Int) -> [CGRect] {
         if let hoops = hoopModel?.detectHoops(in: pixelBuffer, maxCount: maxCount),
            !hoops.isEmpty {

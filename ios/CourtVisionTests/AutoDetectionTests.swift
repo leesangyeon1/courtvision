@@ -95,5 +95,10 @@ final class AutoDetectionTests: XCTestCase {
                                               near: CGPoint(x: 0.72, y: 0.3)), game)
         XCTAssertEqual(RimFinder.pickRim(candidates: [side, game], near: nil), side)
         XCTAssertNil(RimFinder.pickRim(candidates: [], near: nil))
+        // Tap authority: candidates beyond `within` never steal the anchor.
+        XCTAssertNil(RimFinder.pickRim(candidates: [side],
+                                       near: CGPoint(x: 0.72, y: 0.3), within: 0.15))
+        XCTAssertEqual(RimFinder.pickRim(candidates: [side, game],
+                                         near: CGPoint(x: 0.72, y: 0.3), within: 0.15), game)
     }
 }

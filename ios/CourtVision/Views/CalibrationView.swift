@@ -166,7 +166,10 @@ struct CalibrationView: View {
                 // candidate nearest the user's tap (or this end's anchor).
                 rimCandidates = foundRims
                 let anchor = flow.rimAnchors[flow.attackingTeam]
-                let chosenRim = RimFinder.pickRim(candidates: foundRims, near: anchor)
+                // A tapped rim is authoritative — detections may only refine
+                // it locally, never move the box to another hoop.
+                let chosenRim = RimFinder.pickRim(candidates: foundRims, near: anchor,
+                                                  within: anchor != nil ? 0.15 : nil)
                 if let r = chosenRim {
                     rimDetector.rimRects = [r.insetBy(dx: -r.width * 0.15, dy: -r.height * 0.15)]
                     rimConfirmed = true
