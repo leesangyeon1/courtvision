@@ -35,7 +35,8 @@ enum RimFinder {
     /// Trained CNN first; orange-blob heuristic as fallback (unusual rims,
     /// model miss). Empty when neither finds anything.
     static func detectRims(in pixelBuffer: CVPixelBuffer, maxCount: Int) -> [CGRect] {
-        if let hoops = ObjectDetector.shared?.detect(label: "Basketball Hoop", in: pixelBuffer,
+        if let hoops = ObjectDetector.hoop?.detect(labels: ["Basketball Hoop", "rim"],
+                                                     in: pixelBuffer,
                                                      maxCount: maxCount, minConfidence: 0.35),
            !hoops.isEmpty {
             return hoops.sorted { $0.midX < $1.midX }   // rim 1 = left
