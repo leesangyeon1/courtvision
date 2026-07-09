@@ -8,9 +8,6 @@ import Vision
 /// heuristic fallback, plus anchor-based selection for gyms with side hoops.
 enum RimFinder {
     // ------------------------------------------------------------- rims
-    /// Trained YOLO hoop detector (HomeCourt-style CNN); nil when the model
-    /// isn't in the bundle.
-    private static let hoopModel = CoreMLRimDetector()
 
     /// Which detected rim is THE rim: nearest to `anchor` (a user tap or the
     /// previously tracked position). No anchor → most confident (first).
@@ -38,9 +35,10 @@ enum RimFinder {
     /// Trained CNN first; orange-blob heuristic as fallback (unusual rims,
     /// model miss). Empty when neither finds anything.
     static func detectRims(in pixelBuffer: CVPixelBuffer, maxCount: Int) -> [CGRect] {
-        if let hoops = hoopModel?.detectHoops(in: pixelBuffer, maxCount: maxCount),
+        if let hoops = ObjectDetector.shared?.detect(label: "Basketball Hoop", in: pixelBuffer,
+                                                     maxCount: maxCount, minConfidence: 0.35),
            !hoops.isEmpty {
-            return hoops
+            return hoops.sorted { $0.midX < $1.midX }   // rim 1 = left
         }
         return detectRimsByColor(in: pixelBuffer, maxCount: maxCount)
     }

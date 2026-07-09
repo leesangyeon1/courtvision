@@ -32,6 +32,19 @@ struct RecordView: View {
                             context.stroke(Path(rect), with: .color(
                                 model.trackState == .tracking ? .orange : .yellow), lineWidth: 3)
                         }
+                        // Ball trail: fading dots ending in a circle on the
+                        // current position (same visual language as the rim).
+                        let samples = model.ballTrail
+                        for (i, sample) in samples.enumerated() {
+                            let vp = layer.layerPointConverted(fromCaptureDevicePoint: sample.point)
+                            let alpha = 0.25 + 0.75 * Double(i + 1) / Double(samples.count)
+                            let dot = CGRect(x: vp.x - 3, y: vp.y - 3, width: 6, height: 6)
+                            context.fill(Path(ellipseIn: dot), with: .color(.yellow.opacity(alpha)))
+                        }
+                        if let current = samples.last {
+                            let rect = layer.layerRectConverted(fromMetadataOutputRect: current.box)
+                            context.stroke(Path(ellipseIn: rect), with: .color(.yellow), lineWidth: 2)
+                        }
                     }
                     .allowsHitTesting(false)
                 }
@@ -58,7 +71,7 @@ struct RecordView: View {
                 Spacer()
 
                 VStack(spacing: 6) {
-                    Text(model.courtStatus)
+                    Text("\(model.ballStatus) · \(model.courtStatus)")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                     if let errorMessage {
@@ -139,6 +152,9 @@ final class RecordModel: ObservableObject {
     @Published var trackState: TrackState = .tracking
     @Published var trackingNote: String?
     @Published var courtStatus = "Court: waiting for first fix…"
+    @Published var ballStatus = "Ball: searching…"
+    /// Recent ball positions for the overlay trail (newest last).
+    @Published var ballTrail: [BallTrack.Sample] = []
 
     private var homography: Homography?
     private var session: Session?
@@ -155,6 +171,8 @@ final class RecordModel: ObservableObject {
     /// side hoops; the anchor says which one is the game hoop.
     private var rimAnchors: [String: CGPoint] = [:]
     private var lastRimCandidates: [CGRect] = []
+    private var ballTask: Task<Void, Never>?
+    private var ballTrack = BallTrack()
 
     func toggleTeam() {
         attackingTeam = attackingTeam == "A" ? "B" : "A"
@@ -193,11 +211,14 @@ final class RecordModel: ObservableObject {
         self.lastRimSeen = Date()
         if homography != nil { courtStatus = "Court: fixed from calibration" }
         startTracking()
+        startBallTracking()
     }
 
     func stop() {
         trackTask?.cancel()
         trackTask = nil
+        ballTask?.cancel()
+        ballTask = nil
     }
 
     // -------------------------------------------------------- live tracking
@@ -216,6 +237,40 @@ final class RecordModel: ObservableObject {
                 if Task.isCancelled { return }
                 self.handleTrack(rims: rims, quadCandidates: quadCandidates)
             }
+        }
+    }
+
+    /// 8 Hz ball loop — same mechanism as the rim, faster cadence because
+    /// the ball moves: detect candidates, keep the one nearest the current
+    /// track (continuity gate), feed the trail.
+    private func startBallTracking() {
+        guard ballTask == nil, let camera else { return }
+        ballTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 125_000_000)
+                guard let self, let pixelBuffer = camera.latestPixelBuffer else { continue }
+                let balls = await Task.detached(priority: .userInitiated) {
+                    BallFinder.detectBalls(in: pixelBuffer, maxCount: 4)
+                }.value
+                if Task.isCancelled { return }
+                self.handleBall(candidates: balls)
+            }
+        }
+    }
+
+    private func handleBall(candidates: [CGRect]) {
+        // Gate scales with the gap since the last sighting: a ball in flight
+        // covers real distance between ticks.
+        let anchor = ballTrack.last?.point
+        let gap = ballTrack.last.map { Date().timeIntervalSince($0.at) } ?? .infinity
+        let reach: CGFloat? = anchor == nil ? nil : min(0.15 + 0.35 * gap, 0.5)
+        let chosen = BallFinder.pickBall(candidates: candidates, near: anchor, within: reach)
+        ballTrack.update(with: chosen)
+        ballTrail = ballTrack.samples
+        if let last = ballTrack.last, Date().timeIntervalSince(last.at) < 0.5 {
+            ballStatus = "Ball: ✓"
+        } else {
+            ballStatus = "Ball: searching…"
         }
     }
 
