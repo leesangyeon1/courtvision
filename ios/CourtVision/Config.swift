@@ -12,9 +12,9 @@ import Foundation
 /// of the login screen — it never fabricates data or talks to a fake backend.
 enum Config {
     // TODO: replace with your project URL (Settings → API).
-    static let SUPABASE_URL = "TODO_PASTE_SUPABASE_URL"
+    static let SUPABASE_URL = "https://guljpvrfppodnymkrqsh.supabase.co"
     // TODO: replace with your project anon (public) key (Settings → API).
-    static let SUPABASE_ANON_KEY = "TODO_PASTE_SUPABASE_ANON_KEY"
+    static let SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imd1bGpwdnJmcHBvZG55bWtycXNoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI2ODk1OTUsImV4cCI6MjA5ODI2NTU5NX0.R819vZBeXOmfpkUsyRlPqSkq4dH_yQbG0jnIlnmTu4c"
 
     static var isConfigured: Bool {
         !SUPABASE_URL.contains("TODO")

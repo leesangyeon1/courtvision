@@ -55,4 +55,29 @@ final class HomographyTests: XCTestCase {
                    CGPoint(x: 17, y: 19), CGPoint(x: 33, y: 19)]
         XCTAssertNil(Homography(from: src, to: dst))
     }
+
+    func testLeastSquaresWithExtraLandmarks() {
+        // Known homography: scale x by 50, y by 94 (image-normalized → feet).
+        // 6 correspondences with tiny tap noise — least squares must recover
+        // court positions to well under a foot.
+        let court: [CGPoint] = [
+            CGPoint(x: 0, y: 0), CGPoint(x: 50, y: 0),
+            CGPoint(x: 0, y: 94), CGPoint(x: 50, y: 94),
+            CGPoint(x: 0, y: 47), CGPoint(x: 50, y: 47),
+        ]
+        let noise: [CGPoint] = [
+            CGPoint(x: 0.002, y: -0.001), CGPoint(x: -0.001, y: 0.002),
+            CGPoint(x: 0.001, y: 0.001), CGPoint(x: -0.002, y: -0.001),
+            CGPoint(x: 0.001, y: -0.002), CGPoint(x: -0.001, y: 0.001),
+        ]
+        let image = zip(court, noise).map { c, n in
+            CGPoint(x: c.x / 50 + n.x, y: c.y / 94 + n.y)
+        }
+        guard let h = Homography(from: image, to: court) else {
+            return XCTFail("least-squares homography returned nil")
+        }
+        let p = h.apply(CGPoint(x: 25.0 / 50, y: 70.0 / 94))
+        XCTAssertEqual(Double(p.x), 25, accuracy: 0.5)
+        XCTAssertEqual(Double(p.y), 70, accuracy: 1.0)
+    }
 }

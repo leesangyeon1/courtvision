@@ -57,6 +57,10 @@ struct Session: Codable, Hashable, Identifiable, Sendable {
     var startedAt: Date?
     var endedAt: Date?
     var calibration: Calibration?
+    /// Team names for game sessions (nil otherwise). Team A attacks rim 1 by
+    /// default; the calibration screen can swap sides.
+    var teamA: String?
+    var teamB: String?
 
     enum CodingKeys: String, CodingKey {
         case id
@@ -67,6 +71,8 @@ struct Session: Codable, Hashable, Identifiable, Sendable {
         case startedAt = "started_at"
         case endedAt = "ended_at"
         case calibration
+        case teamA = "team_a"
+        case teamB = "team_b"
     }
 }
 
@@ -86,10 +92,12 @@ struct EventRow: Codable, Hashable, Identifiable, Sendable {
     var made: Bool
     var category: ShotCategory
     var zone: ShotZone
-    var courtX: Double             // 0..1
-    var courtY: Double             // 0..1
+    var courtX: Double             // 0..1, relative to the attacked hoop's half
+    var courtY: Double             // 0..1, relative to the attacked hoop's half
     var releaseAngleDeg: Double?
     var releaseTimeMs: Double?
+    /// "A"/"B" in game sessions (which team attacked the rim); nil otherwise.
+    var team: String?
 
     enum CodingKeys: String, CodingKey {
         case id
@@ -103,6 +111,7 @@ struct EventRow: Codable, Hashable, Identifiable, Sendable {
         case courtY = "court_y"
         case releaseAngleDeg = "release_angle_deg"
         case releaseTimeMs = "release_time_ms"
+        case team
     }
 }
 

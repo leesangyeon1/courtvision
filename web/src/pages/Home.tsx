@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { fmtDate } from '../lib/format'
 import { navigate } from '../lib/router'
@@ -6,6 +6,7 @@ import { sb } from '../lib/supabase'
 import type { Mode, Player, Session } from '../types/contract'
 
 const MODES: Mode[] = ['game', 'practice', 'drill', 'freethrow']
+const POLL_MS = 10_000 // fallback path; Realtime session changes invalidate sooner
 
 type RecentSession = Session & { players: { name: string } | null }
 
@@ -27,6 +28,7 @@ export default function Home() {
 
   const recentQ = useQuery({
     queryKey: ['recent-sessions'],
+    refetchInterval: POLL_MS,
     queryFn: async () => {
       const { data, error } = await sb()
         .from('sessions')
@@ -37,6 +39,27 @@ export default function Home() {
       return data as unknown as RecentSession[]
     },
   })
+
+  // Fast path: a session started/ended on the phone shows up here without a
+  // reload — Realtime on the sessions table invalidates the lists.
+  useEffect(() => {
+    const channel = sb()
+      .channel('home-sessions')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'sessions' },
+        () => {
+          qc.invalidateQueries({ queryKey: ['recent-sessions'] })
+          qc.invalidateQueries({ queryKey: ['sessions'] })
+        },
+      )
+      .subscribe()
+    return () => {
+      void sb().removeChannel(channel)
+    }
+  }, [qc])
+
+  const liveSessions = (recentQ.data ?? []).filter((s) => s.status === 'live')
 
   const createPlayer = useMutation({
     mutationFn: async () => {
@@ -60,6 +83,31 @@ export default function Home() {
 
   return (
     <>
+      {liveSessions.length > 0 && (
+        <div className="card" style={{ borderColor: 'var(--orange)' }}>
+          <h2>
+            <span className="live-dot" /> Live now
+          </h2>
+          <p className="card-sub">Recording on the phone — tap to watch live</p>
+          {liveSessions.map((s) => (
+            <div className="row-item" key={s.id}>
+              <span className="row-main" onClick={() => navigate(`/session/${s.id}`)}>
+                {s.players?.name ?? 'Unknown player'}
+                <span className="row-meta"> · started {fmtDate(s.started_at)}</span>
+                {s.mode === 'game' && (
+                  <span className="row-meta">
+                    {' '}
+                    · {s.team_a ?? 'Team A'} vs {s.team_b ?? 'Team B'}
+                  </span>
+                )}
+              </span>
+              <span className={`mode-tag ${s.mode}`}>{s.mode}</span>
+              <span className="status-tag live">LIVE</span>
+            </div>
+          ))}
+        </div>
+      )}
+
       <div className="grid-2">
         <div className="card">
           <h2>Players</h2>
@@ -175,6 +223,7 @@ function PlayerSessions({ player }: { player: Player }) {
 
   const sessionsQ = useQuery({
     queryKey: ['sessions', player.id],
+    refetchInterval: POLL_MS,
     queryFn: async () => {
       const { data, error } = await sb()
         .from('sessions')

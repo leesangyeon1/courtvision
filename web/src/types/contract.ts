@@ -31,6 +31,8 @@ export interface Session {
   started_at: string
   ended_at: string | null
   calibration: Record<string, unknown> | null
+  team_a: string | null
+  team_b: string | null
 }
 
 export interface EventRow {
@@ -46,10 +48,11 @@ export interface EventRow {
   made: boolean
   category: Category
   zone: Zone
-  court_x: number // 0..1 (x / 50 ft)
-  court_y: number // 0..1 (y / 47 ft)
+  court_x: number // 0..1 (x / 50 ft), relative to the attacked hoop's half
+  court_y: number // 0..1 (y / 47 ft), relative to the attacked hoop's half
   release_angle_deg: number | null
   release_time_ms: number | null
+  team: 'A' | 'B' | null // game sessions: which team attacked the rim
 }
 
 // session_box_scores view row
@@ -58,6 +61,25 @@ export interface BoxScore {
   player_id: string
   status: SessionStatus
   started_at: string
+  fga: number
+  fgm: number
+  three_pa: number
+  three_pm: number
+  fta: number
+  ftm: number
+  pts: number
+  fg_pct: number
+  three_pct: number
+  ft_pct: number
+  efg_pct: number
+  ts_pct: number
+  updated_at: string | null
+}
+
+// session_team_box_scores view row (game sessions only)
+export interface TeamBoxScore {
+  session_id: string
+  team: 'A' | 'B'
   fga: number
   fgm: number
   three_pa: number

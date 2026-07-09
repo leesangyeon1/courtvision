@@ -4,6 +4,8 @@ struct NewSessionView: View {
     let player: Player
     @EnvironmentObject private var flow: FlowModel
     @State private var mode: SessionMode = .practice
+    @State private var teamA = ""
+    @State private var teamB = ""
     @State private var errorMessage: String?
     @State private var busy = false
 
@@ -17,6 +19,12 @@ struct NewSessionView: View {
                 }
                 .pickerStyle(.inline)
                 .labelsHidden()
+            }
+            if mode == .game {
+                Section("Teams") {
+                    TextField("Team A (e.g. Home)", text: $teamA)
+                    TextField("Team B (e.g. Away)", text: $teamB)
+                }
             }
             Section {
                 Button(busy ? "Starting…" : "Start Session") { start() }
@@ -34,8 +42,12 @@ struct NewSessionView: View {
         errorMessage = nil
         Task {
             do {
+                let a = teamA.trimmingCharacters(in: .whitespaces)
+                let b = teamB.trimmingCharacters(in: .whitespaces)
                 let session = try await SupabaseService.shared.startSession(
-                    playerId: player.id, mode: mode
+                    playerId: player.id, mode: mode,
+                    teamA: mode == .game ? (a.isEmpty ? "Team A" : a) : nil,
+                    teamB: mode == .game ? (b.isEmpty ? "Team B" : b) : nil
                 )
                 flow.path.append(.calibration(session))
             } catch {

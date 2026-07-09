@@ -1,12 +1,13 @@
 import CoreGraphics
 import Foundation
 
-/// 3×3 planar homography estimated from exactly 4 point correspondences via the
-/// Direct Linear Transform, solved with Gaussian elimination (partial pivoting).
-/// Pure Swift — no Accelerate/OpenCV dependency.
+/// 3×3 planar homography estimated from 4+ point correspondences via the
+/// Direct Linear Transform — exact for 4 pairs, least-squares (normal
+/// equations) for more; extra landmarks average out tap error. Solved with
+/// Gaussian elimination (partial pivoting). Pure Swift — no Accelerate/OpenCV.
 ///
-/// Used to map normalized camera-view points onto half-court feet coordinates
-/// from the 4 calibration landmarks (baseline corners + FT-line corners).
+/// Used to map normalized camera-view points onto court feet coordinates
+/// from the tapped calibration landmarks.
 struct Homography: Hashable {
     /// Row-major 3×3 matrix with h33 normalized to 1.
     let m: [Double]
@@ -16,19 +17,28 @@ struct Homography: Hashable {
         m = matrix
     }
 
-    /// Builds H such that H · src[i] ≈ dst[i] for the 4 pairs.
+    /// Builds H such that H · src[i] ≈ dst[i] for all pairs (least squares).
     /// Returns nil when the points are degenerate (collinear / duplicated).
     init?(from src: [CGPoint], to dst: [CGPoint]) {
-        guard src.count == 4, dst.count == 4 else { return nil }
+        let n = src.count
+        guard n >= 4, dst.count == n else { return nil }
 
-        // DLT: for each pair (x,y) → (u,v), two rows of the 8×8 system A·h = b
-        // with unknowns h = (h11…h32) and h33 fixed to 1. Stored augmented.
+        // DLT: each pair (x,y) → (u,v) gives two rows of A·h = b with
+        // unknowns h = (h11…h32) and h33 fixed to 1. For n > 4 solve the
+        // normal equations AᵀA·h = Aᵀb (8×8, stored augmented).
         var a = [[Double]](repeating: [Double](repeating: 0, count: 9), count: 8)
-        for i in 0..<4 {
+        for i in 0..<n {
             let x = Double(src[i].x), y = Double(src[i].y)
             let u = Double(dst[i].x), v = Double(dst[i].y)
-            a[2 * i]     = [x, y, 1, 0, 0, 0, -u * x, -u * y, u]
-            a[2 * i + 1] = [0, 0, 0, x, y, 1, -v * x, -v * y, v]
+            let rows = [([x, y, 1, 0, 0, 0, -u * x, -u * y], u),
+                        ([0, 0, 0, x, y, 1, -v * x, -v * y], v)]
+            for (row, rhs) in rows {
+                for r in 0..<8 {
+                    guard row[r] != 0 else { continue }
+                    for c in 0..<8 { a[r][c] += row[r] * row[c] }
+                    a[r][8] += row[r] * rhs
+                }
+            }
         }
 
         // Gauss-Jordan elimination with partial pivoting.

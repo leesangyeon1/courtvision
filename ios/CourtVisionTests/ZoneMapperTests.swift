@@ -45,4 +45,5 @@ final class ZoneMapperTests: XCTestCase {
         XCTAssertEqual(ZoneMapper.normalized(xFt: -5, yFt: 60).x, 0)
         XCTAssertEqual(ZoneMapper.normalized(xFt: -5, yFt: 60).y, 1)
     }
+
 }

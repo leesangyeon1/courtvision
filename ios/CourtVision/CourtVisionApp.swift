@@ -1,7 +1,34 @@
 import SwiftUI
+import UIKit
+
+/// Portrait everywhere except the camera screens (calibration/record), which
+/// lock to landscape-right so the whole court fits and the preview↔buffer
+/// transform stays fixed for the duration of a session.
+enum OrientationLock {
+    static var mask: UIInterfaceOrientationMask = .portrait
+
+    static func set(_ newMask: UIInterfaceOrientationMask) {
+        guard mask != newMask else { return }
+        mask = newMask
+        guard let scene = UIApplication.shared.connectedScenes
+            .compactMap({ $0 as? UIWindowScene }).first else { return }
+        scene.requestGeometryUpdate(.iOS(interfaceOrientations: newMask))
+        scene.keyWindow?.rootViewController?
+            .setNeedsUpdateOfSupportedInterfaceOrientations()
+    }
+}
+
+final class AppDelegate: NSObject, UIApplicationDelegate {
+    func application(_ application: UIApplication,
+                     supportedInterfaceOrientationsFor window: UIWindow?) -> UIInterfaceOrientationMask {
+        OrientationLock.mask
+    }
+}
 
 @main
 struct CourtVisionApp: App {
+    @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
+
     var body: some Scene {
         WindowGroup {
             RootView()
@@ -16,6 +43,14 @@ enum Route: Hashable {
     case calibration(Session)
     case record(Session, Calibration)
     case summary(Session)
+
+    /// Camera screens are landscape; everything else is portrait.
+    var wantsLandscape: Bool {
+        switch self {
+        case .calibration, .record: return true
+        case .newSession, .summary: return false
+        }
+    }
 }
 
 /// Shared per-flow state: the navigation path and the single camera session
@@ -23,6 +58,13 @@ enum Route: Hashable {
 @MainActor
 final class FlowModel: ObservableObject {
     @Published var path: [Route] = []
+    /// Game sessions: the camera films one hoop at a time and swings on
+    /// possession change. This is the team attacking the hoop currently in
+    /// frame ("A"/"B"); Switch End flips it and forces recalibration.
+    @Published var attackingTeam = "A"
+    /// User-designated rim positions per end (keyed by the attacking team at
+    /// that end) — a tap that says "THIS hoop, not the side baskets".
+    @Published var rimAnchors: [String: CGPoint] = [:]
     let camera = CameraService()
 }
 
@@ -53,6 +95,13 @@ struct RootView: View {
                         }
                 }
                 .environmentObject(flow)
+                // Orientation follows the COMMITTED navigation path, not view
+                // appearance: an interactive back-swipe fires the previous
+                // screen's onAppear even when the swipe is cancelled, which
+                // used to flip a live camera session back to portrait.
+                .onChange(of: flow.path) { _, path in
+                    OrientationLock.set(path.last?.wantsLandscape == true ? .landscapeRight : .portrait)
+                }
             }
         }
         .task { await supabase.restoreSession() }

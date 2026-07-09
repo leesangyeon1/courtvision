@@ -26,6 +26,15 @@ final class CameraService: NSObject {
     private var continuation: AsyncStream<CMSampleBuffer>.Continuation?
     private var configured = false
 
+    private let latestLock = NSLock()
+    private var _latestPixelBuffer: CVPixelBuffer?
+    /// Most recent camera frame — lets calibration run auto-detection on a
+    /// snapshot without consuming the frames stream.
+    var latestPixelBuffer: CVPixelBuffer? {
+        latestLock.lock(); defer { latestLock.unlock() }
+        return _latestPixelBuffer
+    }
+
     /// Live camera frames. Buffers only the newest frames — vision processing
     /// that falls behind drops frames instead of building latency.
     private(set) lazy var frames: AsyncStream<CMSampleBuffer> = AsyncStream(
@@ -45,9 +54,11 @@ final class CameraService: NSObject {
     }
 
     private func configure() throws {
-        guard let device = AVCaptureDevice.default(.builtInWideAngleCamera,
-                                                   for: .video,
-                                                   position: .back) else {
+        // Ultra-wide (0.5x) first so a whole court fits in frame from the
+        // sideline; fall back to the wide camera on devices without one.
+        let device = AVCaptureDevice.default(.builtInUltraWideCamera, for: .video, position: .back)
+            ?? AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back)
+        guard let device else {
             throw CameraError.noBackCamera
         }
 
@@ -89,17 +100,17 @@ final class CameraService: NSObject {
         }
     }
 
-    func makePreviewLayer() -> AVCaptureVideoPreviewLayer {
-        let layer = AVCaptureVideoPreviewLayer(session: captureSession)
-        layer.videoGravity = .resizeAspectFill
-        return layer
-    }
 }
 
 extension CameraService: AVCaptureVideoDataOutputSampleBufferDelegate {
     func captureOutput(_ output: AVCaptureOutput,
                        didOutput sampleBuffer: CMSampleBuffer,
                        from connection: AVCaptureConnection) {
+        if let pb = CMSampleBufferGetImageBuffer(sampleBuffer) {
+            latestLock.lock()
+            _latestPixelBuffer = pb
+            latestLock.unlock()
+        }
         continuation?.yield(sampleBuffer)
     }
 }

@@ -5,10 +5,11 @@ import SplitsPanel from '../components/SplitsPanel'
 import StatCards from '../components/StatCards'
 import ThreeCourt from '../components/ThreeCourt'
 import ZoneHeatmap from '../components/ZoneHeatmap'
+import TeamPanel from '../components/TeamPanel'
 import { freshness } from '../lib/freshness'
 import { navigate } from '../lib/router'
 import { sb } from '../lib/supabase'
-import type { BoxScore, EventRow, ZoneSplit } from '../types/contract'
+import type { BoxScore, EventRow, Session, TeamBoxScore, ZoneSplit } from '../types/contract'
 
 const POLL_MS = 10_000 // fallback path; Realtime INSERTs invalidate sooner
 
@@ -56,6 +57,34 @@ export default function SessionView({ sessionId }: { sessionId: string }) {
     },
   })
 
+  // Game sessions: team names + per-team box scores.
+  const sessionQ = useQuery({
+    queryKey: ['session', sessionId],
+    queryFn: async () => {
+      const { data, error } = await sb()
+        .from('sessions')
+        .select('*')
+        .eq('id', sessionId)
+        .single()
+      if (error) throw error
+      return data as Session
+    },
+  })
+
+  const teamsQ = useQuery({
+    queryKey: ['teams', sessionId],
+    refetchInterval: POLL_MS,
+    enabled: sessionQ.data?.mode === 'game',
+    queryFn: async () => {
+      const { data, error } = await sb()
+        .from('session_team_box_scores')
+        .select('*')
+        .eq('session_id', sessionId)
+      if (error) throw error
+      return data as TeamBoxScore[]
+    },
+  })
+
   // Fast path: Realtime INSERTs on this session's events invalidate the queries.
   useEffect(() => {
     const channel = sb()
@@ -72,6 +101,7 @@ export default function SessionView({ sessionId }: { sessionId: string }) {
           qc.invalidateQueries({ queryKey: ['box', sessionId] })
           qc.invalidateQueries({ queryKey: ['shots', sessionId] })
           qc.invalidateQueries({ queryKey: ['zones', sessionId] })
+          qc.invalidateQueries({ queryKey: ['teams', sessionId] })
         },
       )
       .subscribe()
@@ -117,6 +147,21 @@ export default function SessionView({ sessionId }: { sessionId: string }) {
       )}
 
       {boxQ.data && <StatCards box={boxQ.data} />}
+
+      {sessionQ.data?.mode === 'game' && (
+        <div className="card">
+          <h2>Teams</h2>
+          <p className="card-sub">
+            {sessionQ.data.team_a ?? 'Team A'} vs {sessionQ.data.team_b ?? 'Team B'} — server-derived
+            from session_team_box_scores
+          </p>
+          {teamsQ.data?.length ? (
+            <TeamPanel session={sessionQ.data} teams={teamsQ.data} />
+          ) : (
+            <p className="muted">No team-attributed shots yet…</p>
+          )}
+        </div>
+      )}
 
       <div className="grid-2">
         <div className="card">

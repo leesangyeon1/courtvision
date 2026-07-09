@@ -27,3 +27,9 @@ xcuserdata/
 .env
 .env.local
 .vercel/
+
+# build artifacts / local research
+ios/build/
+ios/build-device/
+research/
+supabase/.temp/

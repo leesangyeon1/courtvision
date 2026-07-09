@@ -97,15 +97,20 @@ final class SupabaseService: ObservableObject {
     private struct NewSession: Encodable {
         let playerId: UUID
         let mode: SessionMode
+        let teamA: String?
+        let teamB: String?
         enum CodingKeys: String, CodingKey {
             case playerId = "player_id"
             case mode
+            case teamA = "team_a"
+            case teamB = "team_b"
         }
     }
 
-    func startSession(playerId: UUID, mode: SessionMode) async throws -> Session {
+    func startSession(playerId: UUID, mode: SessionMode,
+                      teamA: String? = nil, teamB: String? = nil) async throws -> Session {
         try await db.from("sessions")
-            .insert(NewSession(playerId: playerId, mode: mode))
+            .insert(NewSession(playerId: playerId, mode: mode, teamA: teamA, teamB: teamB))
             .select()
             .single()
             .execute()

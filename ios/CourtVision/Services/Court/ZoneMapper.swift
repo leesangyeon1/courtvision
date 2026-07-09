@@ -64,4 +64,9 @@ enum ZoneMapper {
     static func normalized(xFt: Double, yFt: Double) -> (x: Double, y: Double) {
         (min(max(xFt / courtWidthFt, 0), 1), min(max(yFt / courtDepthFt, 0), 1))
     }
+
+    // ---------------------------------------------------------------- game
+    /// Full court length (50 ft wide × 94 ft long) — used by the calibration
+    /// scorer's full-court candidates.
+    static let fullCourtLengthFt = 94.0
 }
