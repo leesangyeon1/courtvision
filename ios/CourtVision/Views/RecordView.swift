@@ -45,6 +45,11 @@ struct RecordView: View {
                             let rect = layer.layerRectConverted(fromMetadataOutputRect: current.box)
                             context.stroke(Path(ellipseIn: rect), with: .color(.yellow), lineWidth: 2)
                         }
+                        // Player boxes (cyan)
+                        for box in model.playerBoxes {
+                            let rect = layer.layerRectConverted(fromMetadataOutputRect: box)
+                            context.stroke(Path(rect), with: .color(.cyan), lineWidth: 2)
+                        }
                     }
                     .allowsHitTesting(false)
                 }
@@ -71,7 +76,7 @@ struct RecordView: View {
                 Spacer()
 
                 VStack(spacing: 6) {
-                    Text("\(model.ballStatus) · \(model.courtStatus)")
+                    Text("\(model.ballStatus) · \(model.playerStatus) · \(model.courtStatus)")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                     if let errorMessage {
@@ -155,6 +160,8 @@ final class RecordModel: ObservableObject {
     @Published var ballStatus = "Ball: searching…"
     /// Recent ball positions for the overlay trail (newest last).
     @Published var ballTrail: [BallTrack.Sample] = []
+    @Published var playerStatus = "Players: —"
+    @Published var playerBoxes: [CGRect] = []
 
     private var homography: Homography?
     private var session: Session?
@@ -173,6 +180,7 @@ final class RecordModel: ObservableObject {
     private var lastRimCandidates: [CGRect] = []
     private var ballTask: Task<Void, Never>?
     private var ballTrack = BallTrack()
+    private var playerTask: Task<Void, Never>?
 
     func toggleTeam() {
         attackingTeam = attackingTeam == "A" ? "B" : "A"
@@ -212,6 +220,7 @@ final class RecordModel: ObservableObject {
         if homography != nil { courtStatus = "Court: fixed from calibration" }
         startTracking()
         startBallTracking()
+        startPlayerTracking()
     }
 
     func stop() {
@@ -219,6 +228,8 @@ final class RecordModel: ObservableObject {
         trackTask = nil
         ballTask?.cancel()
         ballTask = nil
+        playerTask?.cancel()
+        playerTask = nil
     }
 
     // -------------------------------------------------------- live tracking
@@ -254,6 +265,24 @@ final class RecordModel: ObservableObject {
                 }.value
                 if Task.isCancelled { return }
                 self.handleBall(candidates: balls)
+            }
+        }
+    }
+
+    /// 2 Hz player loop — people move slower than the ball; boxes feed the
+    /// overlay and, later, shooter identification.
+    private func startPlayerTracking() {
+        guard playerTask == nil, let camera, ObjectDetector.player != nil else { return }
+        playerTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 500_000_000)
+                guard let self, let pixelBuffer = camera.latestPixelBuffer else { continue }
+                let players = await Task.detached(priority: .utility) {
+                    PlayerFinder.detectPlayers(in: pixelBuffer)
+                }.value
+                if Task.isCancelled { return }
+                self.playerBoxes = players
+                self.playerStatus = "Players: \(players.count)"
             }
         }
     }

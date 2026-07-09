@@ -16,6 +16,9 @@ import Vision
 final class ObjectDetector {
     static let hoop = ObjectDetector(resource: "HoopDetector")
     static let ball = ObjectDetector(resource: "BallDetector") ?? hoop
+    /// Player model (basketball-players-fy4c2 retrain). No fallback — the
+    /// other models have no person class; absent model = no player boxes.
+    static let player = ObjectDetector(resource: "PlayerDetector")
 
     private let model: VNCoreMLModel
 
