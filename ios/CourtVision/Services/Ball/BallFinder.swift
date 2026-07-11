@@ -14,7 +14,7 @@ enum BallFinder {
     /// first. Lower confidence floor than the rim: the ball is small, fast,
     /// and often motion-blurred; the continuity gate does the filtering.
     static func detectBalls(in pixelBuffer: CVPixelBuffer, maxCount: Int) -> [CGRect] {
-        ObjectDetector.ball?.detect(labels: ["Basketball", "basketball", "sports ball"],
+        ObjectDetector.ball?.detect(labels: ["ball", "ball-in-basket", "Basketball", "basketball", "sports ball"],
                                       in: pixelBuffer,
                                       maxCount: maxCount, minConfidence: 0.25) ?? []
     }

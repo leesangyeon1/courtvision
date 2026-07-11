@@ -4,21 +4,18 @@ import CoreVideo
 import Foundation
 import Vision
 
-/// Trained YOLO detectors (CoreML with NMS) compiled into the bundle.
-/// Two generations run side by side on purpose:
-/// - `hoop` (HoopDetector.mlmodelc): the original weights — proven in the
-///   field for the RIM; its ball class is weak.
-/// - `ball` (BallDetector.mlmodelc): retrained on the eagle-eye dataset
-///   (CC BY 4.0, basketball mAP50 0.92) — serves the BALL; its rim quality
-///   is unverified, so the rim stays on `hoop`.
-/// A missing model yields nil so heuristic fallbacks stay in charge — no
-/// fake detections, ever.
+/// The unified trained detector (CoreML with NMS) compiled into the bundle
+/// as `BasketballDetector.mlmodelc`: user-trained YOLOv8s @ 960px
+/// (mAP50 0.88), 10 classes — ball, ball-in-basket, number, player,
+/// player-in-possession, player-jump-shot, player-layup-dunk,
+/// player-shot-block, referee, rim. One model serves the Rim, Ball and
+/// Player modules. A missing model yields nil so heuristic fallbacks stay
+/// in charge — no fake detections, ever.
 final class ObjectDetector {
-    static let hoop = ObjectDetector(resource: "HoopDetector")
-    static let ball = ObjectDetector(resource: "BallDetector") ?? hoop
-    /// Player model (basketball-players-fy4c2 retrain). No fallback — the
-    /// other models have no person class; absent model = no player boxes.
-    static let player = ObjectDetector(resource: "PlayerDetector")
+    static let unified = ObjectDetector(resource: "BasketballDetector")
+    static let hoop = unified
+    static let ball = unified
+    static let player = unified
 
     private let model: VNCoreMLModel
 

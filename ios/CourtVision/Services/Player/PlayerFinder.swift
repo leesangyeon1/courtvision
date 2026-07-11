@@ -12,7 +12,10 @@ enum PlayerFinder {
     /// best-confidence first. Refs are excluded — they don't shoot.
     /// Empty when the PlayerDetector model isn't in the bundle.
     static func detectPlayers(in pixelBuffer: CVPixelBuffer, maxCount: Int = 12) -> [CGRect] {
-        ObjectDetector.player?.detect(labels: ["Player"], in: pixelBuffer,
+        ObjectDetector.player?.detect(labels: ["Player", "player", "player-in-possession",
+                                               "player-jump-shot", "player-layup-dunk",
+                                               "player-shot-block"],
+                                      in: pixelBuffer,
                                       maxCount: maxCount, minConfidence: 0.4) ?? []
     }
 }
