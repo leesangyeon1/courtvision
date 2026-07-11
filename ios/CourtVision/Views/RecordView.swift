@@ -45,10 +45,19 @@ struct RecordView: View {
                             let rect = layer.layerRectConverted(fromMetadataOutputRect: current.box)
                             context.stroke(Path(ellipseIn: rect), with: .color(.yellow), lineWidth: 2)
                         }
-                        // Player boxes (cyan)
-                        for box in model.playerBoxes {
-                            let rect = layer.layerRectConverted(fromMetadataOutputRect: box)
+                        // Player boxes (cyan) with jersey number top-right
+                        for player in model.players {
+                            let rect = layer.layerRectConverted(fromMetadataOutputRect: player.box)
                             context.stroke(Path(rect), with: .color(.cyan), lineWidth: 2)
+                            if let number = player.number {
+                                context.draw(
+                                    Text("#\(number)")
+                                        .font(.caption.bold())
+                                        .foregroundStyle(.cyan),
+                                    at: CGPoint(x: rect.maxX - 2, y: rect.minY - 8),
+                                    anchor: .bottomTrailing
+                                )
+                            }
                         }
                     }
                     .allowsHitTesting(false)
@@ -161,7 +170,7 @@ final class RecordModel: ObservableObject {
     /// Recent ball positions for the overlay trail (newest last).
     @Published var ballTrail: [BallTrack.Sample] = []
     @Published var playerStatus = "Players: —"
-    @Published var playerBoxes: [CGRect] = []
+    @Published var players: [DetectedPlayer] = []
 
     private var homography: Homography?
     private var session: Session?
@@ -277,12 +286,14 @@ final class RecordModel: ObservableObject {
             while !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: 500_000_000)
                 guard let self, let pixelBuffer = camera.latestPixelBuffer else { continue }
-                let players = await Task.detached(priority: .utility) {
-                    PlayerFinder.detectPlayers(in: pixelBuffer)
+                let detected = await Task.detached(priority: .utility) { () -> [DetectedPlayer] in
+                    let boxes = PlayerFinder.detectPlayers(in: pixelBuffer)
+                    let numbers = NumberReader.read(in: pixelBuffer)
+                    return PlayerFinder.assign(numbers: numbers, to: boxes)
                 }.value
                 if Task.isCancelled { return }
-                self.playerBoxes = players
-                self.playerStatus = "Players: \(players.count)"
+                self.players = detected
+                self.playerStatus = "Players: \(detected.count)"
             }
         }
     }

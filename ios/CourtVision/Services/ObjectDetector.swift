@@ -13,7 +13,9 @@ import Vision
 /// in charge — no fake detections, ever.
 final class ObjectDetector {
     static let unified = ObjectDetector(resource: "BasketballDetector")
-    static let hoop = unified
+    /// Rim runs on the original HoopDetector — field-tested better for rims
+    /// than the unified model; unified is the fallback.
+    static let hoop = ObjectDetector(resource: "HoopDetector") ?? unified
     static let ball = unified
     static let player = unified
 
