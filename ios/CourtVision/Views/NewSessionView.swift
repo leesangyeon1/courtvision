@@ -47,7 +47,8 @@ struct NewSessionView: View {
                 let session = try await SupabaseService.shared.startSession(
                     playerId: player.id, mode: mode,
                     teamA: mode == .game ? (a.isEmpty ? "Team A" : a) : nil,
-                    teamB: mode == .game ? (b.isEmpty ? "Team B" : b) : nil
+                    teamB: mode == .game ? (b.isEmpty ? "Team B" : b) : nil,
+                    teamId: player.teamId
                 )
                 flow.path.append(.calibration(session))
             } catch {

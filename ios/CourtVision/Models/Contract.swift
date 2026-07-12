@@ -28,6 +28,7 @@ struct Player: Codable, Hashable, Identifiable, Sendable {
     var name: String
     var jerseyNumber: Int?
     var position: String?
+    var teamId: UUID?
     var createdAt: Date?
 
     enum CodingKeys: String, CodingKey {
@@ -36,6 +37,7 @@ struct Player: Codable, Hashable, Identifiable, Sendable {
         case name
         case jerseyNumber = "jersey_number"
         case position
+        case teamId = "team_id"
         case createdAt = "created_at"
     }
 }
@@ -61,6 +63,8 @@ struct Session: Codable, Hashable, Identifiable, Sendable {
     /// default; the calibration screen can swap sides.
     var teamA: String?
     var teamB: String?
+    /// Roster team this session belongs to (web-managed teams).
+    var teamId: UUID?
 
     enum CodingKeys: String, CodingKey {
         case id
@@ -73,6 +77,7 @@ struct Session: Codable, Hashable, Identifiable, Sendable {
         case calibration
         case teamA = "team_a"
         case teamB = "team_b"
+        case teamId = "team_id"
     }
 }
 

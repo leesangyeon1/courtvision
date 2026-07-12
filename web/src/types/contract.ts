@@ -13,12 +13,20 @@ export const ZONES = [
 ] as const
 export type Zone = (typeof ZONES)[number]
 
+export interface Team {
+  id: string
+  user_id: string
+  name: string
+  created_at: string
+}
+
 export interface Player {
   id: string
   user_id: string
   name: string
   jersey_number: number | null
   position: string | null
+  team_id: string | null
   created_at: string
 }
 
@@ -33,6 +41,7 @@ export interface Session {
   calibration: Record<string, unknown> | null
   team_a: string | null
   team_b: string | null
+  team_id: string | null
 }
 
 export interface EventRow {
@@ -92,6 +101,21 @@ export interface TeamBoxScore {
   ft_pct: number
   efg_pct: number
   ts_pct: number
+  updated_at: string | null
+}
+
+// session_player_box_scores view row (per-player, game attribution)
+export interface PlayerBoxScore {
+  session_id: string
+  player_id: string
+  fga: number
+  fgm: number
+  three_pa: number
+  three_pm: number
+  fta: number
+  ftm: number
+  pts: number
+  fg_pct: number
   updated_at: string | null
 }
 

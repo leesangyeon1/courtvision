@@ -9,7 +9,7 @@ import TeamPanel from '../components/TeamPanel'
 import { freshness } from '../lib/freshness'
 import { navigate } from '../lib/router'
 import { sb } from '../lib/supabase'
-import type { BoxScore, EventRow, Session, TeamBoxScore, ZoneSplit } from '../types/contract'
+import type { BoxScore, EventRow, Player, PlayerBoxScore, Session, TeamBoxScore, ZoneSplit } from '../types/contract'
 
 const POLL_MS = 10_000 // fallback path; Realtime INSERTs invalidate sooner
 
@@ -71,6 +71,34 @@ export default function SessionView({ sessionId }: { sessionId: string }) {
     },
   })
 
+  // Per-player attribution (game mode: shooter identified by jersey number).
+  const playerBoxQ = useQuery({
+    queryKey: ['player-box', sessionId],
+    refetchInterval: POLL_MS,
+    enabled: sessionQ.data?.mode === 'game',
+    queryFn: async () => {
+      const { data, error } = await sb()
+        .from('session_player_box_scores')
+        .select('*')
+        .eq('session_id', sessionId)
+      if (error) throw error
+      return data as PlayerBoxScore[]
+    },
+  })
+
+  const rosterQ = useQuery({
+    queryKey: ['roster', sessionQ.data?.team_id],
+    enabled: !!sessionQ.data?.team_id,
+    queryFn: async () => {
+      const { data, error } = await sb()
+        .from('players')
+        .select('*')
+        .eq('team_id', sessionQ.data!.team_id!)
+      if (error) throw error
+      return data as Player[]
+    },
+  })
+
   const teamsQ = useQuery({
     queryKey: ['teams', sessionId],
     refetchInterval: POLL_MS,
@@ -102,6 +130,7 @@ export default function SessionView({ sessionId }: { sessionId: string }) {
           qc.invalidateQueries({ queryKey: ['shots', sessionId] })
           qc.invalidateQueries({ queryKey: ['zones', sessionId] })
           qc.invalidateQueries({ queryKey: ['teams', sessionId] })
+          qc.invalidateQueries({ queryKey: ['player-box', sessionId] })
         },
       )
       .subscribe()
@@ -147,6 +176,46 @@ export default function SessionView({ sessionId }: { sessionId: string }) {
       )}
 
       {boxQ.data && <StatCards box={boxQ.data} />}
+
+      {sessionQ.data?.mode === 'game' && (
+        <div className="card">
+          <h2>Player box score</h2>
+          <p className="card-sub">Shots attributed by detected jersey number</p>
+          {playerBoxQ.data?.length ? (
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14 }}>
+              <thead>
+                <tr style={{ color: 'var(--text-secondary)' }}>
+                  <th style={{ textAlign: 'left', padding: '6px 0' }}>Player</th>
+                  <th style={{ textAlign: 'right' }}>PTS</th>
+                  <th style={{ textAlign: 'right' }}>FG</th>
+                  <th style={{ textAlign: 'right' }}>3P</th>
+                  <th style={{ textAlign: 'right' }}>FT</th>
+                </tr>
+              </thead>
+              <tbody>
+                {[...playerBoxQ.data]
+                  .sort((a, b) => b.pts - a.pts)
+                  .map((row) => {
+                    const p = (rosterQ.data ?? []).find((pl) => pl.id === row.player_id)
+                    return (
+                      <tr key={row.player_id} style={{ borderTop: '1px solid var(--bg-inset)' }}>
+                        <td style={{ padding: '6px 0' }}>
+                          {p ? `${p.jersey_number != null ? `#${p.jersey_number} ` : ''}${p.name}` : 'Unknown'}
+                        </td>
+                        <td style={{ textAlign: 'right', fontWeight: 700 }}>{row.pts}</td>
+                        <td style={{ textAlign: 'right' }}>{row.fgm}-{row.fga}</td>
+                        <td style={{ textAlign: 'right' }}>{row.three_pm}-{row.three_pa}</td>
+                        <td style={{ textAlign: 'right' }}>{row.ftm}-{row.fta}</td>
+                      </tr>
+                    )
+                  })}
+              </tbody>
+            </table>
+          ) : (
+            <p className="muted">No player-attributed shots yet…</p>
+          )}
+        </div>
+      )}
 
       {sessionQ.data?.mode === 'game' && (
         <div className="card">
