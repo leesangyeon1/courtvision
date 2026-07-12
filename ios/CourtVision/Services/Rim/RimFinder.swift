@@ -32,16 +32,33 @@ enum RimFinder {
     }
 
     /// Detects up to `maxCount` rims, sorted left → right (rim 1 = left).
-    /// Trained CNN first; orange-blob heuristic as fallback (unusual rims,
-    /// model miss). Empty when neither finds anything.
+    /// BOTH trained models are queried and their candidates merged — the
+    /// dedicated HoopDetector and the unified model's `rim` class each get a
+    /// shot, so one model\'s miss (occlusion, ANE contention) doesn\'t drop
+    /// the rim. Orange-blob heuristic remains the last fallback.
     static func detectRims(in pixelBuffer: CVPixelBuffer, maxCount: Int) -> [CGRect] {
-        if let hoops = ObjectDetector.hoop?.detect(labels: ["rim", "Basketball Hoop"],
+        var candidates = ObjectDetector.hoop?.detect(labels: ["rim", "Basketball Hoop"],
                                                      in: pixelBuffer,
-                                                     maxCount: maxCount, minConfidence: 0.35),
-           !hoops.isEmpty {
-            return hoops.sorted { $0.midX < $1.midX }   // rim 1 = left
+                                                     maxCount: maxCount, minConfidence: 0.30) ?? []
+        if let extra = ObjectDetector.unified?.detect(labels: ["rim"], in: pixelBuffer,
+                                                      maxCount: maxCount, minConfidence: 0.30) {
+            // Keep unified candidates that aren\'t the same rim already found.
+            for box in extra where !candidates.contains(where: { overlaps($0, box) }) {
+                candidates.append(box)
+            }
+        }
+        if !candidates.isEmpty {
+            return Array(candidates.prefix(maxCount)).sorted { $0.midX < $1.midX }  // rim 1 = left
         }
         return detectRimsByColor(in: pixelBuffer, maxCount: maxCount)
+    }
+
+    private static func overlaps(_ a: CGRect, _ b: CGRect, iou threshold: CGFloat = 0.3) -> Bool {
+        let inter = a.intersection(b)
+        guard !inter.isNull, inter.width > 0 else { return false }
+        let interArea = inter.width * inter.height
+        let union = a.width * a.height + b.width * b.height - interArea
+        return union > 0 && interArea / union > threshold
     }
 
     /// Orange-blob fallback pass.

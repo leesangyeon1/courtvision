@@ -335,7 +335,9 @@ final class RecordModel: ObservableObject {
                     trackedRim = padded
                     ManualRimDetector.shared.rimRects = [padded]
                 }
-            } else if Date().timeIntervalSince(lastRimSeen) > 2.5 {
+            } else if Date().timeIntervalSince(lastRimSeen) > 4.0 {
+                // 4 s: players occlude the rim mid-play constantly — don't
+                // drop into reacquire for a normal contested possession.
                 beginReacquire()       // rim gone — camera swinging to other end
             }
 
