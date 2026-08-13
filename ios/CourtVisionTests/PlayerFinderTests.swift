@@ -33,14 +33,4 @@ final class PlayerFinderTests: XCTestCase {
                              label: "player-jump-shot", confidence: 0.9)
         XCTAssertEqual(PlayerFinder.states([base, shot]), [shot])
     }
-
-    func testNumberAssignment() {
-        let shooter = CGRect(x: 0.40, y: 0.40, width: 0.08, height: 0.25)
-        let defender = CGRect(x: 0.60, y: 0.42, width: 0.08, height: 0.24)
-        let numbers = [(point: CGPoint(x: 0.44, y: 0.48), digits: "23"),
-                       (point: CGPoint(x: 0.95, y: 0.10), digits: "7")]  // scoreboard digit, no player
-        let players = PlayerFinder.assign(numbers: numbers, to: [shooter, defender])
-        XCTAssertEqual(players[0].number, "23")
-        XCTAssertNil(players[1].number)
-    }
 }

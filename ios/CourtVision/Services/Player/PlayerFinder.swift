@@ -2,13 +2,6 @@ import CoreGraphics
 import CoreVideo
 import Foundation
 
-/// A player on the floor: detection box plus the jersey number when the
-/// number region was detected and OCR'd.
-struct DetectedPlayer: Equatable {
-    var box: CGRect          // normalized, TOP-LEFT origin
-    var number: String?
-}
-
 /// Player acquisition (PLAYER MODULE) — trained YOLO detection with quality
 /// passes the raw model output needs on real courts:
 /// 1. LOW confidence floor so nobody on the floor is missed…
@@ -50,12 +43,6 @@ enum PlayerFinder {
         raw.filter { stateLabels.contains($0.label) }
     }
 
-    /// Transitional shim — RecordModel migrates to the layered calls in the
-    /// wiring task; remove with DetectedPlayer.
-    static func detectPlayers(in pixelBuffer: CVPixelBuffer, maxCount: Int = 14) -> [CGRect] {
-        corePlayers(detectAll(in: pixelBuffer), maxCount: maxCount).map(\.box)
-    }
-
     /// Person plausibility: upright-ish (crouching allowed), not a speck,
     /// not the whole frame, feet not floating in the scoreboard zone.
     static func shapeFiltered(_ detections: [Detection]) -> [Detection] {
@@ -83,25 +70,5 @@ enum PlayerFinder {
         let interArea = inter.width * inter.height
         let union = a.width * a.height + b.width * b.height - interArea
         return union > 0 ? interArea / union : 0
-    }
-
-    /// Attach OCR'd jersey numbers to players: a number belongs to the
-    /// player whose box contains its center (nearest wins on overlap).
-    static func assign(numbers: [(point: CGPoint, digits: String)],
-                       to boxes: [CGRect]) -> [DetectedPlayer] {
-        var players = boxes.map { DetectedPlayer(box: $0, number: nil) }
-        for number in numbers {
-            var bestIndex: Int?
-            var bestDistance = CGFloat.greatestFiniteMagnitude
-            for (i, player) in players.enumerated() where player.box.contains(number.point) {
-                let d = hypot(player.box.midX - number.point.x,
-                              player.box.midY - number.point.y)
-                if d < bestDistance { bestDistance = d; bestIndex = i }
-            }
-            if let i = bestIndex, players[i].number == nil {
-                players[i].number = number.digits
-            }
-        }
-        return players
     }
 }

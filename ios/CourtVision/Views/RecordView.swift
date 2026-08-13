@@ -45,7 +45,8 @@ struct RecordView: View {
                             let rect = layer.layerRectConverted(fromMetadataOutputRect: current.box)
                             context.stroke(Path(ellipseIn: rect), with: .color(.yellow), lineWidth: 2)
                         }
-                        // Player boxes (cyan) with jersey number top-right
+                        // Player boxes (cyan): jersey number top-right,
+                        // action badge (SHOT/LAYUP/…) bottom-left.
                         for player in model.players {
                             let rect = layer.layerRectConverted(fromMetadataOutputRect: player.box)
                             context.stroke(Path(rect), with: .color(.cyan), lineWidth: 2)
@@ -56,6 +57,15 @@ struct RecordView: View {
                                         .foregroundStyle(.cyan),
                                     at: CGPoint(x: rect.maxX - 2, y: rect.minY - 8),
                                     anchor: .bottomTrailing
+                                )
+                            }
+                            if player.action != .none {
+                                context.draw(
+                                    Text(player.action.short)
+                                        .font(.caption2.bold())
+                                        .foregroundStyle(.orange),
+                                    at: CGPoint(x: rect.minX + 2, y: rect.maxY + 2),
+                                    anchor: .topLeading
                                 )
                             }
                         }
@@ -170,7 +180,7 @@ final class RecordModel: ObservableObject {
     /// Recent ball positions for the overlay trail (newest last).
     @Published var ballTrail: [BallTrack.Sample] = []
     @Published var playerStatus = "Players: —"
-    @Published var players: [DetectedPlayer] = []
+    @Published var players: [TrackedPlayer] = []
 
     private var homography: Homography?
     private var session: Session?
@@ -190,6 +200,7 @@ final class RecordModel: ObservableObject {
     private var ballTask: Task<Void, Never>?
     private var ballTrack = BallTrack()
     private var playerTask: Task<Void, Never>?
+    private var playerTracker = PlayerTracker()
 
     func toggleTeam() {
         attackingTeam = attackingTeam == "A" ? "B" : "A"
@@ -278,22 +289,27 @@ final class RecordModel: ObservableObject {
         }
     }
 
-    /// 2 Hz player loop — people move slower than the ball; boxes feed the
-    /// overlay and, later, shooter identification.
+    /// 2 Hz player loop — detect (Layer 1) → track (Layer 2) → classify
+    /// state + numbers (Layer 3). People move slower than the ball.
     private func startPlayerTracking() {
         guard playerTask == nil, let camera, ObjectDetector.player != nil else { return }
         playerTask = Task { [weak self] in
             while !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: 500_000_000)
                 guard let self, let pixelBuffer = camera.latestPixelBuffer else { continue }
-                let detected = await Task.detached(priority: .utility) { () -> [DetectedPlayer] in
-                    let boxes = PlayerFinder.detectPlayers(in: pixelBuffer)
-                    let numbers = NumberReader.read(in: pixelBuffer)
-                    return PlayerFinder.assign(numbers: numbers, to: boxes)
+                let (core, states, numbers) = await Task.detached(priority: .utility) {
+                    () -> ([Detection], [Detection], [(point: CGPoint, digits: String)]) in
+                    let raw = PlayerFinder.detectAll(in: pixelBuffer)
+                    return (PlayerFinder.corePlayers(raw),
+                            PlayerFinder.states(raw),
+                            NumberReader.read(in: pixelBuffer))
                 }.value
                 if Task.isCancelled { return }
-                self.players = detected
-                self.playerStatus = "Players: \(detected.count)"
+                self.playerTracker.update(with: core)
+                self.playerTracker.assign(numbers: numbers)
+                self.players = ActionClassifier.classify(states: states,
+                                                         tracks: self.playerTracker.tracks)
+                self.playerStatus = "Players: \(self.players.count)"
             }
         }
     }
