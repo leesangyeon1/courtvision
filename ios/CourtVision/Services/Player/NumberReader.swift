@@ -12,7 +12,8 @@ enum NumberReader {
     /// TOP-LEFT origin) for player association.
     static func read(in pixelBuffer: CVPixelBuffer, maxCount: Int = 8) -> [(point: CGPoint, digits: String)] {
         let regions = ObjectDetector.unified?.detect(labels: ["number"], in: pixelBuffer,
-                                                     maxCount: maxCount, minConfidence: 0.3) ?? []
+                                                     maxCount: maxCount, minConfidence: 0.3)
+            .map(\.box) ?? []
         guard !regions.isEmpty else { return [] }
 
         var results: [(CGPoint, String)] = []

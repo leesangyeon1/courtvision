@@ -16,7 +16,8 @@ enum BallFinder {
     static func detectBalls(in pixelBuffer: CVPixelBuffer, maxCount: Int) -> [CGRect] {
         ObjectDetector.ball?.detect(labels: ["ball", "ball-in-basket", "Basketball", "basketball", "sports ball"],
                                       in: pixelBuffer,
-                                      maxCount: maxCount, minConfidence: 0.25) ?? []
+                                      maxCount: maxCount, minConfidence: 0.25)
+            .map(\.box) ?? []
     }
 
     /// Which detected ball is THE ball: nearest to `anchor` (the last tracked

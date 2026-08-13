@@ -25,7 +25,8 @@ enum PlayerFinder {
 
     static func detectPlayers(in pixelBuffer: CVPixelBuffer, maxCount: Int = 14) -> [CGRect] {
         let raw = ObjectDetector.player?.detect(labels: playerLabels, in: pixelBuffer,
-                                                maxCount: 24, minConfidence: 0.30) ?? []
+                                                maxCount: 24, minConfidence: 0.30)
+            .map(\.box) ?? []
         return Array(dedupe(shapeFiltered(raw)).prefix(maxCount))
     }
 

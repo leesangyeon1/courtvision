@@ -30,12 +30,12 @@ final class ObjectDetector {
         model = visionModel
     }
 
-    /// Boxes matching any of `labels` in one frame (normalized, TOP-LEFT
-    /// origin), best-confidence first, capped at `maxCount`. Label SETS keep
-    /// the code working across model generations (e.g. "Basketball Hoop" in
-    /// the original weights vs "rim" in the eagle-eye retrain).
+    /// Labeled detections matching any of `labels` in one frame (normalized,
+    /// TOP-LEFT origin), best-confidence first, capped at `maxCount`. Label
+    /// SETS keep the code working across model generations (e.g. "Basketball
+    /// Hoop" in the original weights vs "rim" in the eagle-eye retrain).
     func detect(labels: Set<String>, in pixelBuffer: CVPixelBuffer,
-                maxCount: Int, minConfidence: Float) -> [CGRect] {
+                maxCount: Int, minConfidence: Float) -> [Detection] {
         let request = VNCoreMLRequest(model: model)
         request.imageCropAndScaleOption = .scaleFill
         let handler = VNImageRequestHandler(cvPixelBuffer: pixelBuffer, orientation: .up)
@@ -48,11 +48,9 @@ final class ObjectDetector {
             .sorted { $0.confidence > $1.confidence }
             .prefix(maxCount)
             .map { obs in
-                let b = obs.boundingBox  // Vision: bottom-left origin
-                return CGRect(x: b.origin.x,
-                              y: 1 - b.origin.y - b.height,
-                              width: b.width,
-                              height: b.height)
+                Detection.fromVision(label: obs.labels.first?.identifier ?? "",
+                                     confidence: obs.confidence,
+                                     visionBox: obs.boundingBox)
             }
     }
 }

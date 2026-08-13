@@ -39,9 +39,11 @@ enum RimFinder {
     static func detectRims(in pixelBuffer: CVPixelBuffer, maxCount: Int) -> [CGRect] {
         var candidates = ObjectDetector.hoop?.detect(labels: ["rim", "Basketball Hoop"],
                                                      in: pixelBuffer,
-                                                     maxCount: maxCount, minConfidence: 0.30) ?? []
+                                                     maxCount: maxCount, minConfidence: 0.30)
+            .map(\.box) ?? []
         if let extra = ObjectDetector.unified?.detect(labels: ["rim"], in: pixelBuffer,
-                                                      maxCount: maxCount, minConfidence: 0.30) {
+                                                      maxCount: maxCount, minConfidence: 0.30)
+            .map(\.box) {
             // Keep unified candidates that aren\'t the same rim already found.
             for box in extra where !candidates.contains(where: { overlaps($0, box) }) {
                 candidates.append(box)
