@@ -3,19 +3,35 @@ import XCTest
 
 final class PlayerFinderTests: XCTestCase {
     func testShapeFilterKillsNonPersonBoxes() {
-        let person = CGRect(x: 0.4, y: 0.4, width: 0.06, height: 0.22)
-        let scoreboard = CGRect(x: 0.3, y: 0.02, width: 0.4, height: 0.10)  // wide, top of frame
-        let speck = CGRect(x: 0.5, y: 0.5, width: 0.01, height: 0.03)
-        let kept = PlayerFinder.shapeFiltered([person, scoreboard, speck])
-        XCTAssertEqual(kept, [person])
+        let person = Detection(box: CGRect(x: 0.4, y: 0.4, width: 0.06, height: 0.22),
+                               label: "player", confidence: 0.8)
+        let scoreboard = Detection(box: CGRect(x: 0.3, y: 0.02, width: 0.4, height: 0.10),
+                                   label: "player", confidence: 0.7)  // wide, top of frame
+        let speck = Detection(box: CGRect(x: 0.5, y: 0.5, width: 0.01, height: 0.03),
+                              label: "player", confidence: 0.6)
+        XCTAssertEqual(PlayerFinder.shapeFiltered([person, scoreboard, speck]), [person])
     }
 
-    func testDedupeMergesCrossClassDoubles() {
-        // Same player as "player" and "player-jump-shot" — heavy overlap.
-        let a = CGRect(x: 0.40, y: 0.40, width: 0.06, height: 0.22)
-        let b = CGRect(x: 0.41, y: 0.41, width: 0.06, height: 0.22)
-        let other = CGRect(x: 0.70, y: 0.45, width: 0.06, height: 0.20)
-        XCTAssertEqual(PlayerFinder.dedupe([a, b, other]), [a, other])
+    func testCorePlayersKeepBaseBoxOverStateBox() {
+        // Same player seen as base "player" (lower conf) and "player-jump-shot"
+        // (higher conf): the BASE box must survive the dedupe — state classes
+        // are Layer-3 evidence, not extra players.
+        let base = Detection(box: CGRect(x: 0.40, y: 0.40, width: 0.06, height: 0.22),
+                             label: "player", confidence: 0.55)
+        let state = Detection(box: CGRect(x: 0.41, y: 0.41, width: 0.06, height: 0.22),
+                              label: "player-jump-shot", confidence: 0.90)
+        let other = Detection(box: CGRect(x: 0.70, y: 0.45, width: 0.06, height: 0.20),
+                              label: "player", confidence: 0.8)
+        // Output is confidence-ranked among survivors: other (0.8) first.
+        XCTAssertEqual(PlayerFinder.corePlayers([state, base, other]), [other, base])
+    }
+
+    func testStatesFilterKeepsOnlyStateClasses() {
+        let base = Detection(box: CGRect(x: 0.4, y: 0.4, width: 0.06, height: 0.22),
+                             label: "player", confidence: 0.8)
+        let shot = Detection(box: CGRect(x: 0.41, y: 0.41, width: 0.06, height: 0.22),
+                             label: "player-jump-shot", confidence: 0.9)
+        XCTAssertEqual(PlayerFinder.states([base, shot]), [shot])
     }
 
     func testNumberAssignment() {

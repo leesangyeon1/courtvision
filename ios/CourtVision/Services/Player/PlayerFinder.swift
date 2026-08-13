@@ -18,35 +18,61 @@ struct DetectedPlayer: Equatable {
 ///    as both "player" and "player-jump-shot" arrives as two boxes.
 /// Refs are excluded — they don't shoot.
 enum PlayerFinder {
-    static let playerLabels: Set<String> = [
-        "Player", "player", "player-in-possession",
-        "player-jump-shot", "player-layup-dunk", "player-shot-block",
+    static let baseLabels: Set<String> = ["Player", "player"]
+    /// Player STATES — still players, never separate objects. They feed the
+    /// action layer (ActionClassifier), and their boxes count as player
+    /// evidence in detection.
+    static let stateLabels: Set<String> = [
+        "player-in-possession", "player-jump-shot",
+        "player-layup-dunk", "player-shot-block",
     ]
+    static let playerLabels = baseLabels.union(stateLabels)
 
+    /// Raw labeled player-family detections, one call per tick.
+    static func detectAll(in pixelBuffer: CVPixelBuffer) -> [Detection] {
+        ObjectDetector.player?.detect(labels: playerLabels, in: pixelBuffer,
+                                      maxCount: 24, minConfidence: 0.30) ?? []
+    }
+
+    /// Layer-1 output: one detection per physical player. Shape filter, then
+    /// greedy dedupe with BASE `player` boxes ranked first, so an overlapping
+    /// (player, player-jump-shot) pair survives as the base box.
+    static func corePlayers(_ raw: [Detection], maxCount: Int = 14) -> [Detection] {
+        let ranked = shapeFiltered(raw).sorted {
+            let a = baseLabels.contains($0.label), b = baseLabels.contains($1.label)
+            return a == b ? $0.confidence > $1.confidence : a
+        }
+        return Array(dedupe(ranked).prefix(maxCount))
+    }
+
+    /// Layer-3 input: this tick's state-class detections, unfiltered.
+    static func states(_ raw: [Detection]) -> [Detection] {
+        raw.filter { stateLabels.contains($0.label) }
+    }
+
+    /// Transitional shim — RecordModel migrates to the layered calls in the
+    /// wiring task; remove with DetectedPlayer.
     static func detectPlayers(in pixelBuffer: CVPixelBuffer, maxCount: Int = 14) -> [CGRect] {
-        let raw = ObjectDetector.player?.detect(labels: playerLabels, in: pixelBuffer,
-                                                maxCount: 24, minConfidence: 0.30)
-            .map(\.box) ?? []
-        return Array(dedupe(shapeFiltered(raw)).prefix(maxCount))
+        corePlayers(detectAll(in: pixelBuffer), maxCount: maxCount).map(\.box)
     }
 
     /// Person plausibility: upright-ish (crouching allowed), not a speck,
     /// not the whole frame, feet not floating in the scoreboard zone.
-    static func shapeFiltered(_ boxes: [CGRect]) -> [CGRect] {
-        boxes.filter { b in
-            b.height > b.width * 0.9
-                && b.height > 0.05 && b.height < 0.9
-                && b.width > 0.015
-                && b.maxY > 0.2
+    static func shapeFiltered(_ detections: [Detection]) -> [Detection] {
+        detections.filter { d in
+            d.box.height > d.box.width * 0.9
+                && d.box.height > 0.05 && d.box.height < 0.9
+                && d.box.width > 0.015
+                && d.box.maxY > 0.2
         }
     }
 
-    /// Cross-class NMS. Boxes arrive confidence-sorted, so the best box of
-    /// an overlapping pair survives.
-    static func dedupe(_ boxes: [CGRect], iouThreshold: CGFloat = 0.45) -> [CGRect] {
-        var kept: [CGRect] = []
-        for box in boxes where !kept.contains(where: { iou($0, box) > iouThreshold }) {
-            kept.append(box)
+    /// Cross-class NMS. Input arrives ranked (base first, then confidence),
+    /// so the preferred detection of an overlapping pair survives.
+    static func dedupe(_ detections: [Detection], iouThreshold: CGFloat = 0.45) -> [Detection] {
+        var kept: [Detection] = []
+        for d in detections where !kept.contains(where: { iou($0.box, d.box) > iouThreshold }) {
+            kept.append(d)
         }
         return kept
     }
