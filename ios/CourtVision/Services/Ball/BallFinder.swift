@@ -10,14 +10,15 @@ import Foundation
 /// Detection only for now — shot decisions come later, built on top of a
 /// track proven good in the field (exactly how the rim was validated).
 enum BallFinder {
-    /// Ball boxes in one frame (normalized, TOP-LEFT origin), best-confidence
-    /// first. Lower confidence floor than the rim: the ball is small, fast,
-    /// and often motion-blurred; the continuity gate does the filtering.
-    static func detectBalls(in pixelBuffer: CVPixelBuffer, maxCount: Int) -> [CGRect] {
+    /// Labeled ball detections in one frame, best-confidence first. Lower
+    /// confidence floor than the rim: the ball is small, fast, and often
+    /// motion-blurred; the continuity gate does the filtering.
+    /// `ball-in-basket` is a STATE of the ball — the label rides along so
+    /// make/miss logic can read it from the track.
+    static func detectBalls(in pixelBuffer: CVPixelBuffer, maxCount: Int) -> [Detection] {
         ObjectDetector.ball?.detect(labels: ["ball", "ball-in-basket", "Basketball", "basketball", "sports ball"],
                                       in: pixelBuffer,
-                                      maxCount: maxCount, minConfidence: 0.25)
-            .map(\.box) ?? []
+                                      maxCount: maxCount, minConfidence: 0.25) ?? []
     }
 
     /// Which detected ball is THE ball: nearest to `anchor` (the last tracked
@@ -25,15 +26,15 @@ enum BallFinder {
     /// accepted distance so a second ball or a bald head across the frame
     /// can't steal the track. (Same rule as RimFinder.pickRim — duplicated
     /// on purpose: modules stay independently testable.)
-    static func pickBall(candidates: [CGRect], near anchor: CGPoint?,
-                         within maxDistance: CGFloat? = nil) -> CGRect? {
+    static func pickBall(candidates: [Detection], near anchor: CGPoint?,
+                         within maxDistance: CGFloat? = nil) -> Detection? {
         guard let anchor else { return candidates.first }
         let nearest = candidates.min {
-            hypot($0.midX - anchor.x, $0.midY - anchor.y)
-                < hypot($1.midX - anchor.x, $1.midY - anchor.y)
+            hypot($0.box.midX - anchor.x, $0.box.midY - anchor.y)
+                < hypot($1.box.midX - anchor.x, $1.box.midY - anchor.y)
         }
         if let maxDistance, let nearest,
-           hypot(nearest.midX - anchor.x, nearest.midY - anchor.y) > maxDistance {
+           hypot(nearest.box.midX - anchor.x, nearest.box.midY - anchor.y) > maxDistance {
             return nil
         }
         return nearest
@@ -46,6 +47,7 @@ struct BallTrack {
     struct Sample: Equatable {
         let point: CGPoint      // box center, normalized top-left
         let box: CGRect
+        let label: String       // "ball" or "ball-in-basket" (state)
         let at: Date
     }
 
@@ -59,12 +61,13 @@ struct BallTrack {
     var last: Sample? { samples.last }
 
     /// Feed one detection (or nil when nothing was found this tick).
-    mutating func update(with box: CGRect?, at now: Date = Date()) {
+    mutating func update(with detection: Detection?, at now: Date = Date()) {
         if let lastAt = samples.last?.at, now.timeIntervalSince(lastAt) > maxGap {
             samples.removeAll()
         }
-        if let box {
-            samples.append(Sample(point: CGPoint(x: box.midX, y: box.midY), box: box, at: now))
+        if let detection {
+            samples.append(Sample(point: CGPoint(x: detection.box.midX, y: detection.box.midY),
+                                  box: detection.box, label: detection.label, at: now))
         }
         samples.removeAll { now.timeIntervalSince($0.at) > maxAge }
     }

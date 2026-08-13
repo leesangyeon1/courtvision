@@ -298,7 +298,7 @@ final class RecordModel: ObservableObject {
         }
     }
 
-    private func handleBall(candidates: [CGRect]) {
+    private func handleBall(candidates: [Detection]) {
         // Gate scales with the gap since the last sighting: a ball in flight
         // covers real distance between ticks.
         let anchor = ballTrack.last?.point
