@@ -45,6 +45,21 @@ Rules that make the stack work:
 
 Raw detections are never used directly. Each module wraps them:
 
+### The three layers (detect → track → classify)
+
+Detection output is `Detection {box, label, confidence}` — labels survive.
+1. **Detect** (`ObjectDetector` + finders): core physical objects only —
+   ball, rim, player. State classes count as player *evidence*, never as
+   extra players (`PlayerFinder.corePlayers` ranks base boxes first).
+2. **Track** (`PlayerTracker`, `BallTrack`): greedy-IoU stable player IDs
+   (2 s tolerance at 2 Hz); ball samples carry their label
+   (`ball-in-basket` is a state read from the track, not a raw frame).
+3. **Classify** (`ActionClassifier`): state-class boxes annotate the
+   best-IoU track (`possession`/`jumpShot`/`layupDunk`/`shotBlock`);
+   an orphan state box is a detector mistake by construction and is
+   dropped. Jersey numbers tally per track — majority vote, persists
+   while the track lives.
+
 ### Continuity gate (rim + ball)
 `pickRim/pickBall(candidates, near: anchor, within: maxDistance)` — keep the
 candidate nearest the current track (or the user's tap), and **reject
@@ -90,8 +105,8 @@ Raw player output needs three passes (in `PlayerFinder`):
 The model detects `number` regions; Vision OCR (`.fast`, no language
 correction) reads **only those ROIs** — never a full-frame text pass. Guards:
 1–2 digit numerics only (sponsor logos ≠ numbers); a number is assigned only
-to a player box that contains its center. Persistent per-player identity
-requires cross-frame tracking (future work).
+to a player box that contains its center. Numbers persist per track via
+majority vote (`PlayerTracker.assign`).
 
 ## 3. Training method (per specialist)
 
@@ -158,6 +173,12 @@ Rules learned the hard way:
 5. **Small-object physics** — a blurred distant ball has no information for a
    deeper net to recover; resolution and frame rate help, depth doesn't.
 
+**Guardrail (adopted from expert review): no model split or retrain without
+per-class failure evidence from the fixed val set** — run
+`tools/eval_model.py` and read the per-class rows, not the mAP mean. The
+14-image val set and the zero-rim-instance val split are the cautionary
+examples.
+
 ### Active learning loop (highest payoff per hour)
 ```
 record own footage → mine hard frames → model-assisted labeling →
@@ -214,4 +235,5 @@ Plug-in point: `RecordModel.handleTrack` (`onCourtFix` marker).
       trail sticks through a full flight; player count matches bodies;
       numbers appear on facing jerseys; no thermal throttling after 10 min
 - [ ] Per-class P/R recorded against the fixed val set (not just mAP mean)
+- [ ] tools/eval_model.py per-class table reviewed for the swapped model
 - [ ] Commit on the module's branch, push, merge to `dev` for integration

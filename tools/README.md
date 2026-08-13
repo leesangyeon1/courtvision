@@ -15,3 +15,8 @@ Usage:
 PASS proves: event inserts are idempotent (3 duplicate re-sends change nothing),
 session_box_scores / session_zone_splits math is correct (FG/3P/FT/PTS/eFG/TS and
 all 10 zone counts), and the live rows the dashboard will show exist in Supabase.
+
+`eval_model.py MODEL DATA [--imgsz N]` — per-class P/R/AP table +
+confusion matrix for a checkpoint against the fixed val set (the gate
+before any model swap; see docs/MODEL_PIPELINE.md §4). Needs the repo
+`.venv` (ultralytics).
