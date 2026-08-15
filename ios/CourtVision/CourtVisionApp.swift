@@ -76,9 +76,11 @@ struct RootView: View {
         Group {
             if !Config.isConfigured {
                 SetupNoticeView()
-            } else if supabase.userId == nil {
-                LoginView()
             } else {
+                // ponytail: login gate bypassed — auth flow broken; restore
+                // the `supabase.userId == nil → LoginView()` branch once the
+                // login issue is fixed. Supabase writes will fail under RLS
+                // while unauthenticated (unless a stored session restores).
                 NavigationStack(path: $flow.path) {
                     PlayersView()
                         .navigationDestination(for: Route.self) { route in
