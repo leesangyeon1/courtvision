@@ -1,0 +1,41 @@
+import CoreGraphics
+
+/// One tick of the pipeline on the frame clock. Everything downstream — the
+/// overlay, the shot tracker, the session buffer, post-processing — reads
+/// Moments; nothing downstream reads a detector directly.
+struct Moment: Equatable {
+    struct PlayerState: Equatable {
+        let trackId: Int
+        /// "A" / "B" once the team assigner runs (P3); nil until then.
+        var team: String?
+        /// Normalized image box, TOP-LEFT origin.
+        var box: CGRect
+        /// Ground-contact estimate in image space: pose ankles when the
+        /// player was on the floor recently (P1), else the box bottom-center.
+        var feet: CGPoint
+        /// `feet` through the homography, court feet. Nil without a court fix.
+        var xFt: Double?
+        var yFt: Double?
+        var action: PlayerAction
+        /// Confidence of the state detection that set `action` (0 for `.none`).
+        var actionConfidence: Float
+        var number: String?
+    }
+
+    struct BallState: Equatable {
+        var box: CGRect
+        /// "ball" or "ball-in-basket" — the state rides the track.
+        var label: String
+        /// Ground projection of the ball center through the homography (the
+        /// ball is in the air; this is where it is *over* the floor).
+        var xFt: Double?
+        var yFt: Double?
+    }
+
+    /// Frame presentation time, seconds — the one clock.
+    let pts: Double
+    var h: Homography?
+    var rim: CGRect?
+    var players: [PlayerState]
+    var ball: BallState?
+}

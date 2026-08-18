@@ -11,6 +11,8 @@ final class ActionClassifierTests: XCTestCase {
         let out = ActionClassifier.classify(states: [state], tracks: [shooter, defender])
         XCTAssertEqual(out[0].action, .jumpShot)
         XCTAssertEqual(out[1].action, .none)
+        XCTAssertEqual(out[0].actionConfidence, 0.9, accuracy: 1e-6)
+        XCTAssertEqual(out[1].actionConfidence, 0)
     }
 
     func testOrphanStateBoxIsDropped() {

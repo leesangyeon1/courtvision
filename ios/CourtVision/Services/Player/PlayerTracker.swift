@@ -12,6 +12,8 @@ struct TrackedPlayer: Identifiable, Equatable {
     let id: Int
     var box: CGRect
     var action: PlayerAction = .none
+    /// Confidence of the state box that set `action` this tick (0 for `.none`).
+    var actionConfidence: Float = 0
     var missedTicks = 0
     /// Every jersey-number OCR read that landed on this track.
     var numberTally: [String: Int] = [:]
@@ -64,7 +66,7 @@ struct PlayerTracker {
             nextID += 1
         }
         // Action is per-tick: reset here, Layer 3 re-annotates.
-        for i in tracks.indices { tracks[i].action = .none }
+        for i in tracks.indices { tracks[i].action = .none; tracks[i].actionConfidence = 0 }
         return tracks
     }
 
