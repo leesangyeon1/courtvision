@@ -31,22 +31,26 @@ One big model is a server-side idea. On-device, cost is
 `Σ (model size × call frequency)`, so the app layers small per-class
 models, each at the slowest cadence its object allows:
 
-| Layer | Model / method | Cadence | Notes |
+| Layer | Model (bundle file) | Lane | Why |
 |---|---|---|---|
-| Rim | `HoopDetector.mlmodelc` **∪** unified `rim` class | 1 Hz | Union of two models — one miss doesn't drop the track |
-| Court | Geometric: `VNDetectRectanglesRequest` candidates + rim-consistency scoring | 1 Hz | Continuous estimate, never locks; future: keypoint model |
-| Ball | `BasketballDetector.mlmodelc` (`ball`, `ball-in-basket`) | 8 Hz | Small fast object → rate + resolution matter |
-| Player | same model (player classes) | 2 Hz | Quality passes below |
-| Jersey # | `number` class + `VNRecognizeTextRequest` (ROI only) | 2 Hz | Rides the player tick |
+| All classes | `BasketballDetector.mlmodelc` (unified 10-class) | every tick (`Engine.Config.tickHz`, see docs/EVAL.md) | ONE inference feeds ball, players, states, numbers, unified rim |
+| Rim | `HoopDetector.mlmodelc` ∪ unified `rim` | slow lane (`slowEvery` ticks ≈ 1 Hz) | Rims don't move; only the camera does |
+| Court | Geometric (`VNDetectRectanglesRequest` + rim scoring) → keypoint model in P2 | slow lane | Continuous estimate, never a hard lock |
+| Jersey number | unified `number` regions + `VNRecognizeTextRequest` (ROI only) | `numberEvery` ticks ≈ 2 Hz | OCR is the expensive part, not detection |
+
+- **One clock, one inference.** `Services/Engine/Engine.swift` runs the
+  unified model once per tick keyed to the frame's presentation time and
+  emits a `Moment`; modules filter the shared output. Never add a loop or a
+  second call to the same model — add a lane in `Engine.Config`.
+- **Cadence discipline.** Raising `tickHz` is a measured decision
+  (docs/EVAL.md tick-cost table), never a guess. Thermal serious/critical
+  halves the rate; modules are never dropped silently.
 
 Code shape: one `ObjectDetector` instance per model file
 (`Services/ObjectDetector.swift`); modules reference
 `ObjectDetector.hoop/.ball/.player/.unified`. Detection filters take **label
 sets** (`["rim", "Basketball Hoop"]`) so model swaps never break a module.
 Swapping a model = replace the `.mlpackage`, adjust a label set, done.
-
-Cadence discipline: never raise a loop rate without recomputing the total
-budget — the 8 Hz ball loop dominates everything.
 
 ## 2. Tracking algorithms (on top of raw detections)
 
@@ -144,6 +148,8 @@ The V1 trajectory approach was deleted for producing junk. The rebuilt
 pipeline composes existing layers — plug-in point:
 `RecordModel.handleTrack` (`onCourtFix` marker).
 
+0. Consumers read `Moment`s from `Engine`; the plug-in point is
+   `RecordModel.publish`.
 1. `player-jump-shot` / `player-layup-dunk` → **attempt**, shooter box known
    → feet → homography → court position → zone/category (3PT via ZoneMapper).
 2. `ball-in-basket` near the tracked rim → **MAKE**; attempt without it in

@@ -14,18 +14,22 @@ actually changes**. Cost is not "number of models" — it is
 `Σ (model size × call frequency)`. A nano model at the right cadence is
 cheaper than one large model called for everything.
 
-| Layer | Model (bundle file) | Size/Res | Cadence | Why this cadence |
-|---|---|---|---|---|
-| Rim | `HoopDetector.mlmodelc` **∪** unified `rim` class | n@640 + s@960 | 1 Hz | Rims don't move; only the camera does |
-| Court | Geometric (no ML yet): `VNDetectRectanglesRequest` + rim scoring | — | 1 Hz | Continuous estimate, never a hard lock |
-| Ball | `BasketballDetector.mlmodelc` (`ball`, `ball-in-basket`) | s@960 | 8 Hz | Small, fast, motion-blurred — needs rate + resolution |
-| Player | `BasketballDetector.mlmodelc` (player classes) | s@960 | 2 Hz | People move slower than the ball |
-| Jersey number | `number` class + `VNRecognizeTextRequest` (ROI-only OCR) | — | 2 Hz | Rides the player tick |
+| Layer | Model (bundle file) | Lane | Why |
+|---|---|---|---|
+| All classes | `BasketballDetector.mlmodelc` (unified 10-class) | every tick (`Engine.Config.tickHz`, see docs/EVAL.md) | ONE inference feeds ball, players, states, numbers, unified rim |
+| Rim | `HoopDetector.mlmodelc` ∪ unified `rim` | slow lane (`slowEvery` ticks ≈ 1 Hz) | Rims don't move; only the camera does |
+| Court | Geometric (`VNDetectRectanglesRequest` + rim scoring) → keypoint model in P2 | slow lane | Continuous estimate, never a hard lock |
+| Jersey number | unified `number` regions + `VNRecognizeTextRequest` (ROI only) | `numberEvery` ticks ≈ 2 Hz | OCR is the expensive part, not detection |
 
 Rules that make the stack work:
 
-- **Cadence discipline.** Never raise a loop's rate without recomputing the
-  total budget. Ball at 8 Hz dominates; everything else is noise next to it.
+- **One clock, one inference.** `Services/Engine/Engine.swift` runs the
+  unified model once per tick keyed to the frame's presentation time and
+  emits a `Moment`; modules filter the shared output. Never add a loop or a
+  second call to the same model — add a lane in `Engine.Config`.
+- **Cadence discipline.** Raising `tickHz` is a measured decision
+  (docs/EVAL.md tick-cost table), never a guess. Thermal serious/critical
+  halves the rate; modules are never dropped silently.
 - **One `ObjectDetector` instance per model file** (`Services/ObjectDetector.swift`).
   Modules reference `ObjectDetector.hoop / .ball / .player / .unified`; swapping
   a model is a file replacement plus (at most) a label-set edit.
