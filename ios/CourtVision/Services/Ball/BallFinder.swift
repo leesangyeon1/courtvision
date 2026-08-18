@@ -10,15 +10,22 @@ import Foundation
 /// Detection only for now — shot decisions come later, built on top of a
 /// track proven good in the field (exactly how the rim was validated).
 enum BallFinder {
-    /// Labeled ball detections in one frame, best-confidence first. Lower
-    /// confidence floor than the rim: the ball is small, fast, and often
-    /// motion-blurred; the continuity gate does the filtering.
+    static let labels: Set<String> = ["ball", "ball-in-basket", "Basketball", "basketball", "sports ball"]
+    /// Lower floor than the rim: the ball is small, fast, motion-blurred; the
+    /// continuity gate does the filtering.
+    static let minConfidence: Float = 0.25
+
+    /// Ball-family detections out of one tick's unified output, best first.
     /// `ball-in-basket` is a STATE of the ball — the label rides along so
     /// make/miss logic can read it from the track.
+    static func balls(from all: [Detection], maxCount: Int = 4) -> [Detection] {
+        Array(all.filter { labels.contains($0.label) && $0.confidence >= minConfidence }
+            .prefix(maxCount))
+    }
+
     static func detectBalls(in pixelBuffer: CVPixelBuffer, maxCount: Int) -> [Detection] {
-        ObjectDetector.ball?.detect(labels: ["ball", "ball-in-basket", "Basketball", "basketball", "sports ball"],
-                                      in: pixelBuffer,
-                                      maxCount: maxCount, minConfidence: 0.25) ?? []
+        balls(from: ObjectDetector.ball?.detectAll(in: pixelBuffer, minConfidence: minConfidence) ?? [],
+              maxCount: maxCount)
     }
 
     /// Which detected ball is THE ball: nearest to `anchor` (the last tracked

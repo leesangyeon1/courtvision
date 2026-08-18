@@ -14,6 +14,12 @@ enum NumberReader {
         let regions = ObjectDetector.unified?.detect(labels: ["number"], in: pixelBuffer,
                                                      maxCount: maxCount, minConfidence: 0.3)
             .map(\.box) ?? []
+        return read(regions: regions, in: pixelBuffer)
+    }
+
+    /// OCR inside already-detected `number` regions (the engine passes the
+    /// tick's unified `number` boxes — no second model call).
+    static func read(regions: [CGRect], in pixelBuffer: CVPixelBuffer) -> [(point: CGPoint, digits: String)] {
         guard !regions.isEmpty else { return [] }
 
         var results: [(CGPoint, String)] = []

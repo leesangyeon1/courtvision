@@ -21,10 +21,18 @@ enum PlayerFinder {
     ]
     static let playerLabels = baseLabels.union(stateLabels)
 
-    /// Raw labeled player-family detections, one call per tick.
+    static let minConfidence: Float = 0.30
+
+    /// Player-family detections (base + state classes) out of one tick's
+    /// unified output. Refs are excluded — they don't shoot.
+    static func playerFamily(from all: [Detection], maxCount: Int = 24) -> [Detection] {
+        Array(all.filter { playerLabels.contains($0.label) && $0.confidence >= minConfidence }
+            .prefix(maxCount))
+    }
+
+    /// Raw labeled player-family detections, one call per tick (non-engine callers).
     static func detectAll(in pixelBuffer: CVPixelBuffer) -> [Detection] {
-        ObjectDetector.player?.detect(labels: playerLabels, in: pixelBuffer,
-                                      maxCount: 24, minConfidence: 0.30) ?? []
+        playerFamily(from: ObjectDetector.player?.detectAll(in: pixelBuffer, minConfidence: minConfidence) ?? [])
     }
 
     /// Layer-1 output: one detection per physical player. Shape filter, then
