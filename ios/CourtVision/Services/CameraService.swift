@@ -35,12 +35,15 @@ final class CameraService: NSObject {
         return _latestPixelBuffer
     }
 
-    /// Live camera frames. Buffers only the newest frames — vision processing
+    /// Live camera frames for ONE consumer (the engine loop). Each call
+    /// finishes the previous stream, so a new recording gets a fresh stream
+    /// instead of a dead one. Buffers only the newest frames — a consumer
     /// that falls behind drops frames instead of building latency.
-    private(set) lazy var frames: AsyncStream<CMSampleBuffer> = AsyncStream(
-        bufferingPolicy: .bufferingNewest(2)
-    ) { [weak self] continuation in
-        self?.continuation = continuation
+    func makeFrames() -> AsyncStream<CMSampleBuffer> {
+        continuation?.finish()
+        return AsyncStream(bufferingPolicy: .bufferingNewest(2)) { [weak self] continuation in
+            self?.continuation = continuation
+        }
     }
 
     /// Requests permission and configures the session once. Safe to call again.

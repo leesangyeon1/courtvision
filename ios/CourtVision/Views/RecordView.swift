@@ -1,10 +1,8 @@
+import CoreMedia
 import SwiftUI
 
-/// Live recording: camera preview + live rim tracking + continuous court
-/// estimation. Ball trajectory / shot detection is intentionally ABSENT for
-/// now — the previous approach produced junk data and was removed for a
-/// clean restart (Ball module). Rim + court acquisition stay: they are the
-/// foundation the next shot pipeline plugs into (`onCourtFix` region).
+/// Live recording: camera preview + overlay. All CV runs in `Engine` (one
+/// tick per frame slot); this view only draws Moments.
 ///
 /// Game sessions: the camera films one hoop at a time and pans on possession
 /// change. Every second the rim + court are re-detected; a big court jump
@@ -95,7 +93,7 @@ struct RecordView: View {
                 Spacer()
 
                 VStack(spacing: 6) {
-                    Text("\(model.ballStatus) · \(model.playerStatus) · \(model.courtStatus)")
+                    Text("\(model.ballStatus) · \(model.playerStatus) · \(model.courtStatus) · \(model.tickStatus)")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                     if let errorMessage {
@@ -163,256 +161,95 @@ struct RecordView: View {
     }
 }
 
-/// Rim + court tracking only (ball/shot pipeline removed for a clean
-/// restart): a 1 Hz loop re-detects the rim (anchor-gated, so side hoops
-/// can't steal the box) and continuously refreshes the court homography —
-/// the camera pans all game, nothing hard-locks. A far court jump means the
-/// camera swung to the other hoop → attacking team flips.
+/// Thin view-model over the `Engine`: pumps camera frames through it on the
+/// engine clock, publishes each `Moment` for the overlay, keeps the server's
+/// calibration current. Turning Moments into shot events is the shot module.
 @MainActor
 final class RecordModel: ObservableObject {
-    enum TrackState { case tracking, reacquiring }
-
     @Published var attackingTeam = "A"
-    @Published var trackState: TrackState = .tracking
+    @Published var trackState: RimTracker.State = .tracking
     @Published var trackingNote: String?
     @Published var courtStatus = "Court: waiting for first fix…"
     @Published var ballStatus = "Ball: searching…"
     /// Recent ball positions for the overlay trail (newest last).
     @Published var ballTrail: [BallTrack.Sample] = []
     @Published var playerStatus = "Players: —"
-    @Published var players: [TrackedPlayer] = []
+    @Published var players: [Moment.PlayerState] = []
+    /// Engine cost per tick — the P0 cost table and the thermal watch.
+    @Published var tickStatus = ""
 
-    private var homography: Homography?
+    private var engine: Engine?
     private var session: Session?
-    private var camera: CameraService?
-    private var trackTask: Task<Void, Never>?
-    /// Rim currently locked on (normalized buffer coords, top-left origin).
-    private var trackedRim: CGRect?
-    private var lockedQuad: [CGPoint] = []
-    private var lastRimSeen = Date()
-    private var lastFlipAt = Date.distantPast
-    private var lastPersist = Date.distantPast
-    private var stableRimTicks = 0
-    /// Tap-designated rim spot per end (keyed by attacking team) — gyms hang
-    /// side hoops; the anchor says which one is the game hoop.
-    private var rimAnchors: [String: CGPoint] = [:]
-    private var lastRimCandidates: [CGRect] = []
-    private var ballTask: Task<Void, Never>?
-    private var ballTrack = BallTrack()
-    private var playerTask: Task<Void, Never>?
-    private var playerTracker = PlayerTracker()
+    private var loopTask: Task<Void, Never>?
+    private var lastPersistPts: Double = -.infinity
 
     func toggleTeam() {
         attackingTeam = attackingTeam == "A" ? "B" : "A"
+        engine?.attackingTeam = attackingTeam
     }
 
-    /// Tap = "track THIS hoop". Snaps to the nearest detected candidate
-    /// (within 12% of the frame) or places a default box, remembers the spot
-    /// as this end's anchor, and resumes tracking on it immediately.
+    /// Tap = "track THIS hoop".
     func designateRim(at point: CGPoint) {
-        let snapped = RimFinder.pickRim(candidates: lastRimCandidates, near: point, within: 0.12)
-        let rim = snapped.map { $0.insetBy(dx: -$0.width * 0.15, dy: -$0.height * 0.15) }
-            ?? CGRect(x: point.x - 0.05, y: point.y - 0.03, width: 0.10, height: 0.06)
-        rimAnchors[attackingTeam] = point
-        ManualRimDetector.shared.rimRects = [rim]
-        trackedRim = rim
-        lastRimSeen = Date()
-        if trackState == .reacquiring {
-            trackState = .tracking
-            trackingNote = nil
-        }
+        guard let engine else { return }
+        engine.designateRim(at: point)
+        if let rim = engine.rim.rim { ManualRimDetector.shared.rimRects = [rim] }
+        trackState = .tracking
+        trackingNote = nil
     }
 
     func start(session: Session, calibration: Calibration,
                camera: CameraService, attackingTeam: String = "A",
                rimAnchors: [String: CGPoint] = [:]) {
-        guard trackTask == nil else { return }
+        guard loopTask == nil else { return }
         self.session = session
-        self.camera = camera
-        self.homography = Homography(matrix: calibration.homography)
         self.attackingTeam = attackingTeam
-        self.rimAnchors = rimAnchors
-        self.lockedQuad = calibration.imagePoints.compactMap {
-            $0.count == 2 ? CGPoint(x: $0[0], y: $0[1]) : nil
+        let engine = Engine(calibration: calibration, isGame: session.mode == .game,
+                            attackingTeam: attackingTeam, rimAnchors: rimAnchors,
+                            initialRim: ManualRimDetector.shared.rimRects.first)
+        self.engine = engine
+        if engine.court.h != nil { courtStatus = "Court: fixed from calibration" }
+
+        let frames = camera.makeFrames()
+        loopTask = Task.detached(priority: .userInitiated) { [weak self] in
+            for await sample in frames {
+                if Task.isCancelled { return }
+                let pts = CMSampleBufferGetPresentationTimeStamp(sample).seconds
+                guard engine.shouldTick(at: pts),
+                      let pixelBuffer = CMSampleBufferGetImageBuffer(sample) else { continue }
+                let t0 = CFAbsoluteTimeGetCurrent()
+                let moment = engine.process(pixelBuffer, pts: pts)
+                let ms = (CFAbsoluteTimeGetCurrent() - t0) * 1000
+                await self?.publish(moment, tickMs: ms)
+            }
         }
-        self.trackedRim = ManualRimDetector.shared.rimRects.first
-        self.lastRimSeen = Date()
-        if homography != nil { courtStatus = "Court: fixed from calibration" }
-        startTracking()
-        startBallTracking()
-        startPlayerTracking()
     }
 
     func stop() {
-        trackTask?.cancel()
-        trackTask = nil
-        ballTask?.cancel()
-        ballTask = nil
-        playerTask?.cancel()
-        playerTask = nil
+        loopTask?.cancel()
+        loopTask = nil
     }
 
-    // -------------------------------------------------------- live tracking
-
-    /// 1 Hz rim + court re-detection for the whole recording.
-    private func startTracking() {
-        guard trackTask == nil, let camera else { return }
-        trackTask = Task { [weak self] in
-            while !Task.isCancelled {
-                try? await Task.sleep(nanoseconds: 1_000_000_000)
-                guard let self, let pixelBuffer = camera.latestPixelBuffer else { continue }
-                let (rims, quadCandidates) = await Task.detached(priority: .utility) {
-                    (RimFinder.detectRims(in: pixelBuffer, maxCount: 4),
-                     CourtFinder.detectCourtQuadCandidates(in: pixelBuffer))
-                }.value
-                if Task.isCancelled { return }
-                self.handleTrack(rims: rims, quadCandidates: quadCandidates)
-            }
+    private func publish(_ m: Moment, tickMs: Double) {
+        guard let engine else { return }
+        players = m.players
+        ballTrail = engine.ballTrail
+        let ballFresh = ballTrail.last.map { m.pts - $0.at.timeIntervalSinceReferenceDate < 0.5 } ?? false
+        ballStatus = ballFresh ? "Ball: ✓" : "Ball: searching…"
+        playerStatus = "Players: \(m.players.count)"
+        tickStatus = String(format: "%.0f ms", tickMs)
+        if engine.attackingTeam != attackingTeam { attackingTeam = engine.attackingTeam }
+        trackState = engine.rim.state
+        trackingNote = trackState == .reacquiring ? "Re-acquiring hoop… hold steady" : nil
+        if let rim = m.rim, ManualRimDetector.shared.rimRects != [rim] {
+            ManualRimDetector.shared.rimRects = [rim]
         }
-    }
-
-    /// 8 Hz ball loop — same mechanism as the rim, faster cadence because
-    /// the ball moves: detect candidates, keep the one nearest the current
-    /// track (continuity gate), feed the trail.
-    private func startBallTracking() {
-        guard ballTask == nil, let camera else { return }
-        ballTask = Task { [weak self] in
-            while !Task.isCancelled {
-                try? await Task.sleep(nanoseconds: 125_000_000)
-                guard let self, let pixelBuffer = camera.latestPixelBuffer else { continue }
-                let balls = await Task.detached(priority: .userInitiated) {
-                    BallFinder.detectBalls(in: pixelBuffer, maxCount: 4)
-                }.value
-                if Task.isCancelled { return }
-                self.handleBall(candidates: balls)
-            }
+        if let fit = engine.court.fitFt {
+            courtStatus = "Court: live (fit \(Int(fit.rounded())) ft)"
         }
-    }
-
-    /// 2 Hz player loop — detect (Layer 1) → track (Layer 2) → classify
-    /// state + numbers (Layer 3). People move slower than the ball.
-    private func startPlayerTracking() {
-        guard playerTask == nil, let camera, ObjectDetector.player != nil else { return }
-        playerTask = Task { [weak self] in
-            while !Task.isCancelled {
-                try? await Task.sleep(nanoseconds: 500_000_000)
-                guard let self, let pixelBuffer = camera.latestPixelBuffer else { continue }
-                let (core, states, numbers) = await Task.detached(priority: .utility) {
-                    () -> ([Detection], [Detection], [(point: CGPoint, digits: String)]) in
-                    let raw = PlayerFinder.detectAll(in: pixelBuffer)
-                    return (PlayerFinder.corePlayers(raw),
-                            PlayerFinder.states(raw),
-                            NumberReader.read(in: pixelBuffer))
-                }.value
-                if Task.isCancelled { return }
-                self.playerTracker.update(with: core)
-                self.playerTracker.assign(numbers: numbers)
-                self.players = ActionClassifier.classify(states: states,
-                                                         tracks: self.playerTracker.tracks)
-                self.playerStatus = "Players: \(self.players.count)"
-            }
+        if let h = m.h, m.pts - lastPersistPts > 10 {
+            lastPersistPts = m.pts
+            persistCalibration(corners: engine.court.quad, courtPoints: engine.court.courtPoints, h: h)
         }
-    }
-
-    private func handleBall(candidates: [Detection]) {
-        // Gate scales with the gap since the last sighting: a ball in flight
-        // covers real distance between ticks.
-        let anchor = ballTrack.last?.point
-        let gap = ballTrack.last.map { Date().timeIntervalSince($0.at) } ?? .infinity
-        let reach: CGFloat? = anchor == nil ? nil : min(0.15 + 0.35 * gap, 0.5)
-        let chosen = BallFinder.pickBall(candidates: candidates, near: anchor, within: reach)
-        ballTrack.update(with: chosen)
-        ballTrail = ballTrack.samples
-        if let last = ballTrack.last, Date().timeIntervalSince(last.at) < 0.5 {
-            ballStatus = "Ball: ✓"
-        } else {
-            ballStatus = "Ball: searching…"
-        }
-    }
-
-    private func handleTrack(rims: [CGRect], quadCandidates: [[CGPoint]]) {
-        lastRimCandidates = rims
-
-        // ---- rim ----------------------------------------------------------
-        switch trackState {
-        case .tracking:
-            let anchor = trackedRim.map { CGPoint(x: $0.midX, y: $0.midY) }
-                ?? rimAnchors[attackingTeam]
-            // Only follow detections near the rim we're locked on — a side
-            // hoop elsewhere in frame must not steal the box.
-            if let r = RimFinder.pickRim(candidates: rims, near: anchor,
-                                         within: anchor != nil ? 0.2 : nil) {
-                let padded = r.insetBy(dx: -r.width * 0.15, dy: -r.height * 0.15)
-                if let current = trackedRim,
-                   hypot(padded.midX - current.midX, padded.midY - current.midY) > 0.15 {
-                    beginReacquire()   // rim jumped — camera moving
-                } else {
-                    lastRimSeen = Date()
-                    trackedRim = padded
-                    ManualRimDetector.shared.rimRects = [padded]
-                }
-            } else if Date().timeIntervalSince(lastRimSeen) > 4.0 {
-                // 4 s: players occlude the rim mid-play constantly — don't
-                // drop into reacquire for a normal contested possession.
-                beginReacquire()       // rim gone — camera swinging to other end
-            }
-
-        case .reacquiring:
-            // Prefer the other end's tap anchor (if set) — that's the hoop
-            // we're swinging toward.
-            let otherTeam = attackingTeam == "A" ? "B" : "A"
-            let target = rimAnchors[otherTeam] ?? rimAnchors[attackingTeam]
-            if let r = RimFinder.pickRim(candidates: rims, near: target,
-                                         within: target != nil ? 0.25 : nil) {
-                lastRimSeen = Date()
-                let padded = r.insetBy(dx: -r.width * 0.15, dy: -r.height * 0.15)
-                trackedRim = padded
-                ManualRimDetector.shared.rimRects = [padded]
-                stableRimTicks += 1
-                if stableRimTicks >= 2 {   // rim steady two ticks → locked again
-                    trackState = .tracking
-                    trackingNote = nil
-                }
-            } else {
-                stableRimTicks = 0
-            }
-        }
-
-        // ---- court: continuous best-effort estimate — NEVER a hard lock ---
-        guard let rim = trackedRim,
-              let best = CourtFinder.bestQuad(candidates: quadCandidates,
-                                              rims: [rim], fullCourt: false),
-              best.score <= 15,
-              let pick = CourtFinder.scoreCourtAssignments(quad: best.quad, rims: [rim],
-                                                           fullCourt: false),
-              let h = Homography(from: best.quad, to: pick.courtPoints) else { return }
-
-        // Court jumped far from the previous estimate → the camera swung to
-        // the other hoop → possession switched (cooldown stops re-flips
-        // while the pan settles).
-        let meanDelta = zip(best.quad, lockedQuad)
-            .map { hypot($0.x - $1.x, $0.y - $1.y) }
-            .reduce(0, +) / CGFloat(max(lockedQuad.count, 1))
-        if session?.mode == .game, !lockedQuad.isEmpty, meanDelta > 0.2,
-           Date().timeIntervalSince(lastFlipAt) > 5 {
-            toggleTeam()
-            lastFlipAt = Date()
-        }
-
-        homography = h
-        lockedQuad = best.quad
-        courtStatus = "Court: live (fit \(String(format: "%.0f", best.score)) ft)"
-        if Date().timeIntervalSince(lastPersist) > 10 {
-            lastPersist = Date()
-            persistCalibration(corners: best.quad, courtPoints: pick.courtPoints, h: h)
-        }
-        // onCourtFix: the future shot pipeline consumes `homography` here.
-    }
-
-    private func beginReacquire() {
-        trackState = .reacquiring
-        stableRimTicks = 0
-        trackingNote = "Re-acquiring hoop… hold steady"
     }
 
     /// Keep the server's session calibration current (fire-and-forget).
