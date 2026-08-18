@@ -31,28 +31,27 @@ enum RimFinder {
         return nearest
     }
 
-    /// Detects up to `maxCount` rims, sorted left → right (rim 1 = left).
-    /// BOTH trained models are queried and their candidates merged — the
-    /// dedicated HoopDetector and the unified model's `rim` class each get a
-    /// shot, so one model\'s miss (occlusion, ANE contention) doesn\'t drop
-    /// the rim. Orange-blob heuristic remains the last fallback.
+    /// Union of the two models' rim candidates: unified boxes that don't
+    /// overlap a HoopDetector box are appended, so one model's miss
+    /// (occlusion, ANE contention) doesn't drop the rim. Sorted left → right
+    /// (rim 1 = left).
+    static func merge(hoop: [CGRect], unified: [CGRect], maxCount: Int) -> [CGRect] {
+        var candidates = hoop
+        for box in unified where !candidates.contains(where: { overlaps($0, box) }) {
+            candidates.append(box)
+        }
+        return Array(candidates.prefix(maxCount)).sorted { $0.midX < $1.midX }
+    }
+
+    /// Detects up to `maxCount` rims (calibration path — the engine merges
+    /// from its own tick instead). Orange-blob heuristic is the last fallback.
     static func detectRims(in pixelBuffer: CVPixelBuffer, maxCount: Int) -> [CGRect] {
-        var candidates = ObjectDetector.hoop?.detect(labels: ["rim", "Basketball Hoop"],
-                                                     in: pixelBuffer,
-                                                     maxCount: maxCount, minConfidence: 0.30)
-            .map(\.box) ?? []
-        if let extra = ObjectDetector.unified?.detect(labels: ["rim"], in: pixelBuffer,
-                                                      maxCount: maxCount, minConfidence: 0.30)
-            .map(\.box) {
-            // Keep unified candidates that aren\'t the same rim already found.
-            for box in extra where !candidates.contains(where: { overlaps($0, box) }) {
-                candidates.append(box)
-            }
-        }
-        if !candidates.isEmpty {
-            return Array(candidates.prefix(maxCount)).sorted { $0.midX < $1.midX }  // rim 1 = left
-        }
-        return detectRimsByColor(in: pixelBuffer, maxCount: maxCount)
+        let hoop = ObjectDetector.hoop?.detect(labels: ["rim", "Basketball Hoop"], in: pixelBuffer,
+                                               maxCount: maxCount, minConfidence: 0.30).map(\.box) ?? []
+        let unified = ObjectDetector.unified?.detect(labels: ["rim"], in: pixelBuffer,
+                                                     maxCount: maxCount, minConfidence: 0.30).map(\.box) ?? []
+        let merged = merge(hoop: hoop, unified: unified, maxCount: maxCount)
+        return merged.isEmpty ? detectRimsByColor(in: pixelBuffer, maxCount: maxCount) : merged
     }
 
     private static func overlaps(_ a: CGRect, _ b: CGRect, iou threshold: CGFloat = 0.3) -> Bool {

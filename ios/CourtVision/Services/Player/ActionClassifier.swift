@@ -41,7 +41,10 @@ enum ActionClassifier {
                 let s = PlayerFinder.iou(track.box, state.box)
                 if s > bestIoU { bestIoU = s; bestIndex = i }
             }
-            if let i = bestIndex { out[i].action = PlayerAction(label: state.label) }
+            if let i = bestIndex {
+                out[i].action = PlayerAction(label: state.label)
+                out[i].actionConfidence = state.confidence
+            }
         }
         return out
     }

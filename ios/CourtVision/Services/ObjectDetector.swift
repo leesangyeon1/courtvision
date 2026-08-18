@@ -30,27 +30,35 @@ final class ObjectDetector {
         model = visionModel
     }
 
-    /// Labeled detections matching any of `labels` in one frame (normalized,
-    /// TOP-LEFT origin), best-confidence first, capped at `maxCount`. Label
-    /// SETS keep the code working across model generations (e.g. "Basketball
-    /// Hoop" in the original weights vs "rim" in the eagle-eye retrain).
-    func detect(labels: Set<String>, in pixelBuffer: CVPixelBuffer,
-                maxCount: Int, minConfidence: Float) -> [Detection] {
+    /// Every labeled detection in one frame above `minConfidence`, best
+    /// first. ONE call per engine tick — modules filter this list by label
+    /// set instead of each running the model.
+    func detectAll(in pixelBuffer: CVPixelBuffer, minConfidence: Float,
+                   maxCount: Int = 64) -> [Detection] {
         let request = VNCoreMLRequest(model: model)
         request.imageCropAndScaleOption = .scaleFill
         let handler = VNImageRequestHandler(cvPixelBuffer: pixelBuffer, orientation: .up)
         try? handler.perform([request])
-        return (request.results as? [VNRecognizedObjectObservation] ?? [])
-            .filter { obs in
-                guard let id = obs.labels.first?.identifier else { return false }
-                return labels.contains(id) && obs.confidence >= minConfidence
+        return Array((request.results as? [VNRecognizedObjectObservation] ?? [])
+            .compactMap { obs -> Detection? in
+                guard let id = obs.labels.first?.identifier, obs.confidence >= minConfidence else {
+                    return nil
+                }
+                return Detection.fromVision(label: id, confidence: obs.confidence,
+                                            visionBox: obs.boundingBox)
             }
             .sorted { $0.confidence > $1.confidence }
-            .prefix(maxCount)
-            .map { obs in
-                Detection.fromVision(label: obs.labels.first?.identifier ?? "",
-                                     confidence: obs.confidence,
-                                     visionBox: obs.boundingBox)
-            }
+            .prefix(maxCount))
+    }
+
+    /// Labeled detections matching any of `labels` — a filter over
+    /// `detectAll` for callers outside the engine tick (calibration). Label
+    /// SETS keep the code working across model generations (e.g. "Basketball
+    /// Hoop" in the original weights vs "rim" in the eagle-eye retrain).
+    func detect(labels: Set<String>, in pixelBuffer: CVPixelBuffer,
+                maxCount: Int, minConfidence: Float) -> [Detection] {
+        Array(detectAll(in: pixelBuffer, minConfidence: minConfidence)
+            .filter { labels.contains($0.label) }
+            .prefix(maxCount))
     }
 }
