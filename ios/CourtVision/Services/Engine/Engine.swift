@@ -26,13 +26,15 @@ final class Engine {
         var hoop: (CVPixelBuffer) -> [CGRect]
         var courtQuads: (CVPixelBuffer) -> [[CGPoint]]
         var numbers: ([CGRect], CVPixelBuffer) -> [(point: CGPoint, digits: String)]
+        var pose: (CVPixelBuffer, CGRect, Double) -> PoseReader.Sample?
 
         static let live = Detectors(
             unified: { ObjectDetector.unified?.detectAll(in: $0, minConfidence: 0.25) ?? [] },
             hoop: { ObjectDetector.hoop?.detect(labels: ["rim", "Basketball Hoop"], in: $0,
                                                 maxCount: 4, minConfidence: 0.30).map(\.box) ?? [] },
             courtQuads: { CourtFinder.detectCourtQuadCandidates(in: $0) },
-            numbers: { NumberReader.read(regions: $0, in: $1) })
+            numbers: { NumberReader.read(regions: $0, in: $1) },
+            pose: { PoseReader.read(in: $0, roi: $1, pts: $2) })
     }
 
     var config: Config
@@ -45,6 +47,7 @@ final class Engine {
     private(set) var court: CourtEstimator
     private var ballTrack = BallTrack()
     private var playerTracker = PlayerTracker()
+    private var feet = FeetHistory()
     private var tickCount = 0
     private var lastTickPts: Double = -.infinity
     private(set) var lastMoment: Moment?
@@ -119,6 +122,12 @@ final class Engine {
         let tracks = ActionClassifier.classify(states: PlayerFinder.states(family),
                                                tracks: playerTracker.tracks)
 
+        // ---- pose: only the ball handler / shooter, ROI only --------------
+        for t in tracks where t.action == .possession || t.action == .jumpShot || t.action == .layupDunk {
+            if let s = detectors.pose(pixelBuffer, t.box, pts) { feet.add(s, track: t.id, now: pts) }
+        }
+        feet.prune(keeping: Set(tracks.map(\.id)))
+
         // ---- moment ------------------------------------------------------
         let h = court.h
         func toCourt(_ p: CGPoint) -> (Double?, Double?) {
@@ -129,7 +138,7 @@ final class Engine {
         let moment = Moment(
             pts: pts, h: h, rim: rim.rim,
             players: tracks.map { t in
-                let feet = CGPoint(x: t.box.midX, y: t.box.maxY)
+                let feet = self.feet.groundContact(track: t.id) ?? CGPoint(x: t.box.midX, y: t.box.maxY)
                 let (x, y) = toCourt(feet)
                 return Moment.PlayerState(trackId: t.id, team: nil, box: t.box, feet: feet,
                                           xFt: x, yFt: y, action: t.action,
