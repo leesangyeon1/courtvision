@@ -26,3 +26,4 @@ Filled by `tools/eval_events.py --append docs/EVAL.md`.
 
 | date | commit | clip | attempts GT | P | R | make/miss acc | loc median ft | loc p90 ft |
 |---|---|---|---|---|---|---|---|---|
+| 2026-08-17 | 102d842 | freethrow | 1 | 1.00 | 1.00 | 0.00 | — | — |

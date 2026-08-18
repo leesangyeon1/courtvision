@@ -20,3 +20,11 @@ all 10 zone counts), and the live rows the dashboard will show exist in Supabase
 confusion matrix for a checkpoint against the fixed val set (the gate
 before any model swap; see docs/MODEL_PIPELINE.md §4). Needs the repo
 `.venv` (ultralytics).
+
+`eval_events.py GT.csv EVENTS.json` / `eval_events.py GT.csv --session ID …` —
+attempt precision/recall (±1.5 s), make/miss accuracy, location error (ft)
+against a hand-labeled CSV. Events come from `EngineReplayTests`
+(`TEST_RUNNER_COURTVISION_REPLAY_CLIP=/abs/clip.mp4 xcodebuild … test
+-only-testing:CourtVisionTests/EngineReplayTests/testReplayClipFromEnvironment`
+writes `clip.events.json`) or from Supabase. `--append docs/EVAL.md` records
+the row. Stdlib only. Tests: `python3 -m unittest tools/test_eval_events.py`.
