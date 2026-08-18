@@ -34,7 +34,11 @@ targets:
   CourtVisionTests:
     type: bundle.unit-test
     platform: iOS
-    sources: [CourtVisionTests]
+    sources:
+      - path: CourtVisionTests
+        excludes: ["Fixtures/**"]
+      - path: CourtVisionTests/Fixtures
+        buildPhase: resources     # files land at the test bundle root
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.courtvision.app.tests
