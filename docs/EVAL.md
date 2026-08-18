@@ -26,3 +26,14 @@ Filled by `tools/eval_events.py --append docs/EVAL.md`.
 
 | date | commit | clip | attempts GT | P | R | make/miss acc | loc median ft | loc p90 ft |
 |---|---|---|---|---|---|---|---|---|
+| 2026-08-17 | 102d842 | freethrow | 1 | 1.00 | 1.00 | 0.00 | — | — |
+
+Observations, fixture clip (commit 102d842, simulator replay, tickHz 8):
+the attempt opened at 0.27 s — the shooter's set position already read as
+`player-jump-shot`, 1.4 s before the release (inside the ±1.5 s match window,
+barely); the make was scored *missed* — no `ball-in-basket` observation near
+the rim within the 3 s window (rim sits at the frame edge, ball passes
+through the net at ~2.9 s); no court fix from rectangle detection on that
+scene, so no location. Three concrete P1/P2 targets: shooting-state onset vs
+release, ball-in-basket recall at partial rims, and the keypoint court model.
+The P1 baseline paragraph (≥ 5 field clips) goes below this line.

@@ -93,7 +93,7 @@ struct RecordView: View {
                 Spacer()
 
                 VStack(spacing: 6) {
-                    Text("\(model.ballStatus) · \(model.playerStatus) · \(model.courtStatus) · \(model.tickStatus)")
+                    Text("Shots: \(model.shotCount) \(model.shotToast ?? "") · \(model.ballStatus) · \(model.playerStatus) · \(model.courtStatus) · \(model.tickStatus)")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                     if let errorMessage {
@@ -177,11 +177,18 @@ final class RecordModel: ObservableObject {
     @Published var players: [Moment.PlayerState] = []
     /// Engine cost per tick — the P0 cost table and the thermal watch.
     @Published var tickStatus = ""
+    @Published var shotCount = 0
+    @Published var shotToast: String?
 
     private var engine: Engine?
     private var session: Session?
     private var loopTask: Task<Void, Never>?
     private var lastPersistPts: Double = -.infinity
+    private var sessionStartPts: Double?
+    private var roster: [String: UUID] = [:]
+    /// Resolved shots still waiting for a court fix (≤ 20 s, then dropped —
+    /// never an invented location).
+    private var pendingLocation: [ShotEvent] = []
 
     func toggleTeam() {
         attackingTeam = attackingTeam == "A" ? "B" : "A"
@@ -208,9 +215,16 @@ final class RecordModel: ObservableObject {
                             initialRim: ManualRimDetector.shared.rimRects.first)
         self.engine = engine
         if engine.court.h != nil { courtStatus = "Court: fixed from calibration" }
+        if session.mode == .game {
+            Task { [weak self] in
+                let players = (try? await SupabaseService.shared.players()) ?? []
+                self?.roster = RosterMap.build(players: players, teamId: session.teamId)
+            }
+        }
 
         let frames = camera.makeFrames()
         loopTask = Task.detached(priority: .userInitiated) { [weak self] in
+            var shots = ShotEventTracker()
             for await sample in frames {
                 if Task.isCancelled { return }
                 let pts = CMSampleBufferGetPresentationTimeStamp(sample).seconds
@@ -218,8 +232,9 @@ final class RecordModel: ObservableObject {
                       let pixelBuffer = CMSampleBufferGetImageBuffer(sample) else { continue }
                 let t0 = CFAbsoluteTimeGetCurrent()
                 let moment = engine.process(pixelBuffer, pts: pts)
+                let events = shots.update(moment)
                 let ms = (CFAbsoluteTimeGetCurrent() - t0) * 1000
-                await self?.publish(moment, tickMs: ms)
+                await self?.publish(moment, events: events, tickMs: ms)
             }
         }
     }
@@ -229,7 +244,7 @@ final class RecordModel: ObservableObject {
         loopTask = nil
     }
 
-    private func publish(_ m: Moment, tickMs: Double) {
+    private func publish(_ m: Moment, events: [ShotEvent], tickMs: Double) {
         guard let engine else { return }
         players = m.players
         ballTrail = engine.ballTrail
@@ -250,6 +265,53 @@ final class RecordModel: ObservableObject {
             lastPersistPts = m.pts
             persistCalibration(corners: engine.court.quad, courtPoints: engine.court.courtPoints, h: h)
         }
+        if sessionStartPts == nil { sessionStartPts = m.pts }
+        for e in events {
+            switch e.kind {
+            case .attempt: shotToast = "Shot…"
+            case .made, .missed: resolve(e, latest: m)
+            }
+        }
+        flushPending(m)
+    }
+
+    /// A resolution carries the attempt-time court point when there was a
+    /// fix. Without one, the *current* fix still applies as long as the rim
+    /// never re-acquired since the attempt (camera didn't swing); otherwise
+    /// the shot waits ≤ 20 s for a fix.
+    private func resolve(_ e: ShotEvent, latest m: Moment) {
+        if let court = e.court {
+            emit(e, court: court)
+        } else if let h = m.h, fixStillApplies(since: e.pts) {
+            emit(e, court: h.apply(e.feet))
+        } else {
+            pendingLocation.append(e)
+        }
+    }
+
+    private func flushPending(_ m: Moment) {
+        pendingLocation.removeAll { m.pts - $0.pts > 20 }          // dropped, never invented
+        guard let h = m.h else { return }
+        let ready = pendingLocation.filter { fixStillApplies(since: $0.pts) }
+        for e in ready { emit(e, court: h.apply(e.feet)) }
+        pendingLocation.removeAll { r in ready.contains(r) }
+    }
+
+    private func fixStillApplies(since pts: Double) -> Bool {
+        (engine?.rim.lastReacquirePts ?? -.infinity) < pts
+    }
+
+    private func emit(_ e: ShotEvent, court: CGPoint) {
+        guard let session, let start = sessionStartPts else { return }
+        let number = players.first { $0.trackId == e.trackId }?.number
+        let playerId = session.mode == .game ? number.flatMap { roster[$0] } : session.playerId
+        guard let row = ShotEventMapper.eventRow(e, court: court, session: session, sessionStartPts: start,
+                                                 playerId: playerId,
+                                                 team: session.mode == .game ? attackingTeam : nil)
+        else { return }
+        OfflineQueue.shared.enqueue(row)
+        shotCount += 1
+        shotToast = (row.made ? "✓ " : "✗ ") + row.category.rawValue.replacingOccurrences(of: "_", with: " ").uppercased()
     }
 
     /// Keep the server's session calibration current (fire-and-forget).

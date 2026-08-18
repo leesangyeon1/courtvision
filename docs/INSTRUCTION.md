@@ -180,4 +180,5 @@ pipeline composes existing layers — plug-in point:
       sticks through a flight · player count ≈ bodies on court · numbers on
       facing jerseys · no thermal throttling in 10 min
 - [ ] Per-class P/R vs the fixed val set recorded
+- [ ] tools/eval_events.py rows appended to docs/EVAL.md for the fixture clip (any change under Services/Shot or Services/Engine)
 - [ ] Commit on the module branch → push → merge to `dev`

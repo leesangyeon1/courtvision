@@ -3,7 +3,7 @@ import Foundation
 
 /// What a tracked player is DOING this tick (Layer 3 annotates it; `none`
 /// between annotations). Cases mirror the model's state classes.
-enum PlayerAction: Equatable {
+enum PlayerAction: String, Codable, Equatable {
     case none, possession, jumpShot, layupDunk, shotBlock
 }
 

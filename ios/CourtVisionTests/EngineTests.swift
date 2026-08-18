@@ -29,7 +29,8 @@ final class EngineTests: XCTestCase {
                              self.det(self.rim, "rim", 0.9)] },
             hoop: { _ in counter.n += 1; return [] },
             courtQuads: { _ in [self.quad] },
-            numbers: { _, _ in [] })
+            numbers: { _, _ in [] },
+            pose: { _, _, _ in nil })
         return Engine(config: .init(tickHz: 8, slowEvery: 8, numberEvery: 4), detectors: detectors,
                       calibration: calibration, isGame: isGame, attackingTeam: "A",
                       rimAnchors: [:], initialRim: nil)
@@ -76,6 +77,25 @@ final class EngineTests: XCTestCase {
         _ = e.process(blank(), pts: 0)
         XCTAssertTrue(e.flippedThisTick)
         XCTAssertEqual(e.attackingTeam, "B")
+    }
+
+    func testFeetComeFromPoseGroundContactWhenShooting() {
+        // Tick 1: possession on the floor (ankles low). Tick 2: jump shot in the air.
+        var tick = 0
+        let boxes = [CGRect(x: 0.47, y: 0.28, width: 0.06, height: 0.22),      // bottom 0.50
+                     CGRect(x: 0.47, y: 0.20, width: 0.06, height: 0.22)]      // bottom 0.42 (airborne)
+        let states = ["player-in-possession", "player-jump-shot"]
+        let detectors = Engine.Detectors(
+            unified: { _ in [self.det(boxes[tick], "player", 0.9), self.det(boxes[tick], states[tick], 0.8)] },
+            hoop: { _ in [] }, courtQuads: { _ in [] }, numbers: { _, _ in [] },
+            pose: { _, box, pts in PoseReader.Sample(pts: pts, ankleMid: CGPoint(x: box.midX, y: box.maxY - 0.01)) })
+        let e = Engine(config: .init(tickHz: 8, slowEvery: 8, numberEvery: 4), detectors: detectors,
+                       calibration: nil, isGame: false, attackingTeam: "A", rimAnchors: [:], initialRim: nil)
+        _ = e.process(blank(), pts: 0)
+        tick = 1
+        let m = e.process(blank(), pts: 0.125)
+        XCTAssertEqual(m.players[0].action, .jumpShot)
+        XCTAssertEqual(m.players[0].feet.y, 0.49, accuracy: 1e-6)     // the floor sample, not the airborne box
     }
 
     func testDesignateRimSnapsAndAnchors() {
