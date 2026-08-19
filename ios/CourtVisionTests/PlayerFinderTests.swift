@@ -12,6 +12,18 @@ final class PlayerFinderTests: XCTestCase {
         XCTAssertEqual(PlayerFinder.shapeFiltered([person, scoreboard, speck]), [person])
     }
 
+    func testDedupeDropsContainedFragmentButKeepsOverlappingNeighbour() {
+        // A near player often yields a whole-body box AND a torso/head
+        // fragment inside it (IoU small, so IoU-only dedupe keeps both).
+        let body = Detection(box: CGRect(x: 0.40, y: 0.30, width: 0.10, height: 0.40),
+                             label: "player", confidence: 0.9)
+        let fragment = Detection(box: CGRect(x: 0.42, y: 0.32, width: 0.06, height: 0.15),
+                                 label: "player", confidence: 0.6)          // ~100% inside body, IoU ≈ 0.22
+        let neighbour = Detection(box: CGRect(x: 0.47, y: 0.35, width: 0.06, height: 0.20),
+                                  label: "player", confidence: 0.7)         // half inside body: a second person
+        XCTAssertEqual(PlayerFinder.dedupe([body, fragment, neighbour]), [body, neighbour])
+    }
+
     func testCorePlayersKeepBaseBoxOverStateBox() {
         // Same player seen as base "player" (lower conf) and "player-jump-shot"
         // (higher conf): the BASE box must survive the dedupe — state classes

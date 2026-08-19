@@ -104,6 +104,12 @@ Raw player output needs three passes (in `PlayerFinder`):
 3. **Cross-class IoU dedupe (0.45)**: the model's NMS is per-class, so one
    player detected as both `player` and `player-jump-shot` arrives as two
    boxes — merge, best confidence wins.
+4. **Containment dedupe (0.75 intersection-over-smaller)**: a near player
+   yields a body box AND a torso/head fragment inside it (IoU small);
+   the fragment is dropped.
+5. **Only tracks seen this tick are emitted** (`Engine` → `Moment`): a
+   track that missed a tick stays in the tracker for re-association, but its
+   stale box is never drawn or recorded — ghosts read as duplicate players.
 
 ### Jersey numbers
 The model detects `number` regions; Vision OCR (`.fast`, no language

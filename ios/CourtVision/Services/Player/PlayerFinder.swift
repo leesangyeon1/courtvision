@@ -63,13 +63,29 @@ enum PlayerFinder {
     }
 
     /// Cross-class NMS. Input arrives ranked (base first, then confidence),
-    /// so the preferred detection of an overlapping pair survives.
-    static func dedupe(_ detections: [Detection], iouThreshold: CGFloat = 0.45) -> [Detection] {
+    /// so the preferred detection of an overlapping pair survives. Two tests
+    /// per pair: IoU (same-size duplicates) and intersection-over-smaller
+    /// (a torso/head fragment sitting inside the body box — IoU is small
+    /// there, containment is not).
+    /// ponytail: containment also swallows a far player fully inside a near
+    /// player's box; a mask-based split is the upgrade if that shows up.
+    static func dedupe(_ detections: [Detection], iouThreshold: CGFloat = 0.45,
+                       containmentThreshold: CGFloat = 0.75) -> [Detection] {
         var kept: [Detection] = []
-        for d in detections where !kept.contains(where: { iou($0.box, d.box) > iouThreshold }) {
+        for d in detections where !kept.contains(where: {
+            iou($0.box, d.box) > iouThreshold || containment($0.box, d.box) >= containmentThreshold
+        }) {
             kept.append(d)
         }
         return kept
+    }
+
+    /// Intersection over the SMALLER box's area (0…1).
+    static func containment(_ a: CGRect, _ b: CGRect) -> CGFloat {
+        let inter = a.intersection(b)
+        guard !inter.isNull, inter.width > 0, inter.height > 0 else { return 0 }
+        let smaller = min(a.width * a.height, b.width * b.height)
+        return smaller > 0 ? (inter.width * inter.height) / smaller : 0
     }
 
     static func iou(_ a: CGRect, _ b: CGRect) -> CGFloat {
