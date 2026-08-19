@@ -64,6 +64,24 @@ Detection output is `Detection {box, label, confidence}` — labels survive.
    dropped. Jersey numbers tally per track — majority vote, persists
    while the track lives.
 
+### Two ends, one tap each (rim)
+`RimTracker` tracks up to two ends, "A" and "B" (the hoop that team
+attacks). Nothing locks without a tap (or the calibration seed): practice
+gyms hang side baskets and "most confident" would pick one. First tap → end
+A, second → end B, a tap near an existing end moves it. Each end has its own
+occlusion / reacquire state. Exactly one locked rim ⇒ that end is in play;
+both locked ⇒ the shot decides (the rim the ball entered, else the nearest
+rim to the shooter) and the court fit is full-court (`fullCourt: true`,
+far-end shots mirrored into the attacked half for the contract).
+
+### Teams from jersey color
+`TeamAssigner`: mean chest color of every player seen this tick → online
+2-means (seeded from the farthest pair after 6 samples) → per-track majority
+vote. Brighter cluster = A (blue box), darker = B (red), unassigned cyan;
+`referee` class boxes are black and never players. "Teams ⇄" swaps A/B when
+the brightness rule guesses wrong. Ref 02's SigLIP → UMAP → K-means, reduced
+to what a phone needs.
+
 ### Continuity gate (rim + ball)
 `pickRim/pickBall(candidates, near: anchor, within: maxDistance)` — keep the
 candidate nearest the current track (or the user's tap), and **reject
@@ -71,7 +89,7 @@ candidates beyond `within`**. This is what stops a side hoop, a second ball,
 or a round false positive from stealing the track. A user tap is
 authoritative: detections may refine it locally, never move it elsewhere.
 
-- Rim: `within 0.15–0.25` of anchor; per-end anchors keyed by attacking team.
+- Rim: `within 0.2` of the locked rim while tracking, `0.25` of the end's anchor while reacquiring.
 - Ball: reach scales with the time since last sighting
   (`min(0.15 + 0.35·gap, 0.5)`) — a ball unseen for half a second may
   legitimately reappear far away.

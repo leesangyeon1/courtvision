@@ -10,8 +10,10 @@ enum EngineReplay {
         var events: [ShotEvent] = []
     }
 
+    /// `seedRim`: the calibration screen's stand-in — with no tap available
+    /// in a replay, end A locks onto the first rim candidate seen (leftmost).
     static func run(url: URL, config: Engine.Config = Engine.Config(),
-                    isGame: Bool = false) async throws -> Result {
+                    isGame: Bool = false, seedRim: Bool = true) async throws -> Result {
         let asset = AVURLAsset(url: url)
         guard let track = try await asset.loadTracks(withMediaType: .video).first else {
             throw CocoaError(.fileReadCorruptFile)
@@ -25,14 +27,18 @@ enum EngineReplay {
         reader.startReading()
 
         let engine = Engine(config: config, calibration: nil, isGame: isGame,
-                            attackingTeam: "A", rimAnchors: [:], initialRim: nil)
+                            attackingTeam: "A", rimAnchors: [:], initialRims: [:])
         var shots = ShotEventTracker()
         var result = Result()
         while let sample = output.copyNextSampleBuffer() {
             let pts = CMSampleBufferGetPresentationTimeStamp(sample).seconds
             guard engine.shouldTick(at: pts, thermal: .nominal),
                   let pixelBuffer = CMSampleBufferGetImageBuffer(sample) else { continue }
-            let moment = engine.process(pixelBuffer, pts: pts)
+            var moment = engine.process(pixelBuffer, pts: pts)
+            if seedRim, engine.rim.rims.isEmpty, let c = engine.rim.lastCandidates.first {
+                engine.designateRim(at: CGPoint(x: c.midX, y: c.midY))
+                moment.rims = engine.rim.rims
+            }
             result.moments.append(moment)
             result.events.append(contentsOf: shots.update(moment))
         }

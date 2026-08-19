@@ -56,6 +56,12 @@ Swapping a model = replace the `.mlpackage`, adjust a label set, done.
 
 Raw boxes are never used directly:
 
+- **Two ends, tap to lock**: `RimTracker` holds end A and end B; first
+  tap → A, second → B, tap near an end moves it; one locked rim = that end
+  is in play, two = per-shot (ball's rim, else nearest to the shooter),
+  full-court homography.
+- **Teams by jersey color** (`TeamAssigner`): 2-means on chest color →
+  A blue / B red / referee black; "Teams ⇄" swaps.
 - **Continuity gate** (rim + ball): keep the candidate nearest the current
   track or the user's tap, reject anything beyond `within` — side hoops,
   second balls, round false positives can't steal a track. **A tap is

@@ -24,7 +24,7 @@ final class EngineReplayTests: XCTestCase {
         let result = try await EngineReplay.run(url: clip)
         let live = result.moments.filter { $0.pts < 4.4 }                 // before the frozen tail
         XCTAssertGreaterThan(live.count, 20)
-        XCTAssertGreaterThanOrEqual(live.filter { $0.rim != nil }.count, live.count * 9 / 10, "rim lost")
+        XCTAssertGreaterThanOrEqual(live.filter { !$0.rims.isEmpty }.count, live.count * 9 / 10, "rim lost")
         XCTAssertGreaterThanOrEqual(live.filter { $0.ball != nil }.count, live.count / 2, "ball rarely seen")
         XCTAssertGreaterThanOrEqual(live.filter { $0.players.count >= 3 }.count, live.count * 8 / 10, "players rarely seen")
         XCTAssertTrue(result.events.filter { $0.kind != .attempt }.allSatisfy { $0.resolvedPts != nil })

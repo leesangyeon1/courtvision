@@ -35,7 +35,15 @@ struct Moment: Equatable {
     /// Frame presentation time, seconds — the one clock.
     let pts: Double
     var h: Homography?
-    var rim: CGRect?
+    /// Locked rims by end ("A"/"B" = the hoop that team attacks).
+    var rims: [String: CGRect]
     var players: [PlayerState]
     var ball: BallState?
+    /// Referee boxes (drawn black; not tracked, never a player).
+    var referees: [CGRect] = []
+    /// True when `h` maps to the full 94-ft court (both rims locked);
+    /// `farEnds` are the ends whose hoop sits in the far half — shots at
+    /// them are mirrored into the near half for the contract.
+    var fullCourt = false
+    var farEnds: Set<String> = []
 }

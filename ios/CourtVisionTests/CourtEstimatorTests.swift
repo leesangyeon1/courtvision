@@ -13,7 +13,7 @@ final class CourtEstimatorTests: XCTestCase {
     func testAcceptsFitAndProjectsFeet() {
         var c = CourtEstimator(calibration: nil)
         XCTAssertNil(c.h)
-        XCTAssertFalse(c.update(quadCandidates: [quad], rim: rim, isGame: false, pts: 0))
+        XCTAssertTrue(c.update(quadCandidates: [quad], rims: [rim]))
         XCTAssertNotNil(c.h)
         XCTAssertLessThan(c.fitFt ?? 99, 1)
         let feet = c.h!.apply(CGPoint(x: 0.5, y: 0.5))
@@ -23,26 +23,12 @@ final class CourtEstimatorTests: XCTestCase {
 
     func testNoRimOrBadFitKeepsPreviousEstimate() {
         var c = CourtEstimator(calibration: nil)
-        _ = c.update(quadCandidates: [quad], rim: rim, isGame: false, pts: 0)
+        c.update(quadCandidates: [quad], rims: [rim])
         let h0 = c.h
-        _ = c.update(quadCandidates: [quad], rim: nil, isGame: false, pts: 1)
+        XCTAssertFalse(c.update(quadCandidates: [quad], rims: []))
         XCTAssertEqual(c.h, h0)
         // Rim far from any plausible hoop position → every assignment fails the 15 ft gate.
-        _ = c.update(quadCandidates: [quad], rim: CGRect(x: 0.5, y: 0.5, width: 0.06, height: 0.04),
-                     isGame: false, pts: 2)
+        XCTAssertFalse(c.update(quadCandidates: [quad], rims: [CGRect(x: 0.5, y: 0.5, width: 0.06, height: 0.04)]))
         XCTAssertEqual(c.h, h0)
-    }
-
-    func testFarJumpFlipsOnceInGameModeWithCooldown() {
-        let shifted = quad.map { CGPoint(x: $0.x, y: $0.y - 0.3) }   // seeded from a different pan
-        let cal = Calibration(homography: [1, 0, 0, 0, 1, 0, 0, 0, 1],
-                              imagePoints: shifted.map { [Double($0.x), Double($0.y)] },
-                              courtPoints: [])
-        var c = CourtEstimator(calibration: cal)
-        XCTAssertTrue(c.update(quadCandidates: [quad], rim: rim, isGame: true, pts: 0))    // jump → flip
-        XCTAssertFalse(c.update(quadCandidates: [quad], rim: rim, isGame: true, pts: 1))   // same quad
-        // Practice mode never flips, even on a jump.
-        var p = CourtEstimator(calibration: cal)
-        XCTAssertFalse(p.update(quadCandidates: [quad], rim: rim, isGame: false, pts: 0))
     }
 }

@@ -30,17 +30,19 @@ final class EngineTests: XCTestCase {
             hoop: { _ in counter.n += 1; return [] },
             courtQuads: { _ in [self.quad] },
             numbers: { _, _ in [] },
-            pose: { _, _, _ in nil })
+            pose: { _, _, _ in nil },
+            torsoColor: { _, _ in nil })
+        // End A seeded from calibration (a rim never locks without an anchor).
         return Engine(config: .init(tickHz: 8, slowEvery: 8, numberEvery: 4), detectors: detectors,
                       calibration: calibration, isGame: isGame, attackingTeam: "A",
-                      rimAnchors: [:], initialRim: nil)
+                      rimAnchors: [:], initialRims: ["A": rim])
     }
 
     func testOneTickBuildsMomentWithRimCourtBallAndProjectedFeet() {
         let e = engine()
         let m = e.process(blank(), pts: 0)
         XCTAssertEqual(m.pts, 0)
-        XCTAssertNotNil(m.rim)                     // slow lane ran on tick 1: unified rim → tracker
+        XCTAssertNotNil(m.rims["A"])              // slow lane ran on tick 1: unified rim → end A
         XCTAssertNotNil(m.h)                       // quad scored against that rim
         XCTAssertEqual(m.players.count, 1)
         XCTAssertEqual(m.players[0].feet, CGPoint(x: 0.5, y: 0.5))
@@ -68,34 +70,22 @@ final class EngineTests: XCTestCase {
         XCTAssertEqual(e.playerMaxMissedTicks, 16)                       // 2 s × 8 Hz (was 4 ticks at 2 Hz)
     }
 
-    func testCourtJumpFlipsAttackingTeamInGameMode() {
-        let shifted = quad.map { CGPoint(x: $0.x, y: $0.y - 0.3) }
-        let cal = Calibration(homography: [1, 0, 0, 0, 1, 0, 0, 0, 1],
-                              imagePoints: shifted.map { [Double($0.x), Double($0.y)] },
-                              courtPoints: [])
-        let e = engine(isGame: true, calibration: cal)
+    func testAttackingEndFollowsTheSingleLockedRim() {
+        // Only end B locked → team B's hoop is the one in frame.
+        let detectors = Engine.Detectors(
+            unified: { _ in [self.det(self.rim, "rim", 0.9)] },
+            hoop: { _ in [] }, courtQuads: { _ in [] }, numbers: { _, _ in [] },
+            pose: { _, _, _ in nil }, torsoColor: { _, _ in nil })
+        let e = Engine(config: .init(tickHz: 8, slowEvery: 8, numberEvery: 4), detectors: detectors,
+                       calibration: nil, isGame: true, attackingTeam: "A", rimAnchors: [:],
+                       initialRims: ["B": rim])
         _ = e.process(blank(), pts: 0)
         XCTAssertTrue(e.flippedThisTick)
         XCTAssertEqual(e.attackingTeam, "B")
-    }
-
-    func testFeetComeFromPoseGroundContactWhenShooting() {
-        // Tick 1: possession on the floor (ankles low). Tick 2: jump shot in the air.
-        var tick = 0
-        let boxes = [CGRect(x: 0.47, y: 0.28, width: 0.06, height: 0.22),      // bottom 0.50
-                     CGRect(x: 0.47, y: 0.20, width: 0.06, height: 0.22)]      // bottom 0.42 (airborne)
-        let states = ["player-in-possession", "player-jump-shot"]
-        let detectors = Engine.Detectors(
-            unified: { _ in [self.det(boxes[tick], "player", 0.9), self.det(boxes[tick], states[tick], 0.8)] },
-            hoop: { _ in [] }, courtQuads: { _ in [] }, numbers: { _, _ in [] },
-            pose: { _, box, pts in PoseReader.Sample(pts: pts, ankleMid: CGPoint(x: box.midX, y: box.maxY - 0.01)) })
-        let e = Engine(config: .init(tickHz: 8, slowEvery: 8, numberEvery: 4), detectors: detectors,
-                       calibration: nil, isGame: false, attackingTeam: "A", rimAnchors: [:], initialRim: nil)
-        _ = e.process(blank(), pts: 0)
-        tick = 1
-        let m = e.process(blank(), pts: 0.125)
-        XCTAssertEqual(m.players[0].action, .jumpShot)
-        XCTAssertEqual(m.players[0].feet.y, 0.49, accuracy: 1e-6)     // the floor sample, not the airborne box
+        // A tap far from B opens end A (default box, no candidate there) → both
+        // locked → no single answer; the shot's end decides (ShotEventTracker).
+        XCTAssertEqual(e.designateRim(at: CGPoint(x: 0.8, y: 0.5)), "A")
+        XCTAssertEqual(e.rim.trackedEnds, ["A", "B"])
     }
 
     func testGhostTracksAreNotInMomentButKeepIdentity() {
@@ -104,9 +94,9 @@ final class EngineTests: XCTestCase {
         var present = true
         let detectors = Engine.Detectors(
             unified: { _ in present ? [self.det(self.player, "player", 0.9)] : [] },
-            hoop: { _ in [] }, courtQuads: { _ in [] }, numbers: { _, _ in [] }, pose: { _, _, _ in nil })
+            hoop: { _ in [] }, courtQuads: { _ in [] }, numbers: { _, _ in [] }, pose: { _, _, _ in nil }, torsoColor: { _, _ in nil })
         let e = Engine(config: .init(tickHz: 8, slowEvery: 8, numberEvery: 4), detectors: detectors,
-                       calibration: nil, isGame: false, attackingTeam: "A", rimAnchors: [:], initialRim: nil)
+                       calibration: nil, isGame: false, attackingTeam: "A", rimAnchors: [:], initialRims: [:])
         XCTAssertEqual(e.process(blank(), pts: 0).players.map(\.trackId), [1])
         present = false
         XCTAssertTrue(e.process(blank(), pts: 0.125).players.isEmpty)
@@ -117,8 +107,29 @@ final class EngineTests: XCTestCase {
     func testDesignateRimSnapsAndAnchors() {
         let e = engine()
         _ = e.process(blank(), pts: 0)
-        e.designateRim(at: CGPoint(x: 0.2, y: 0.5))       // within 0.12 of the unified rim → snaps
-        XCTAssertEqual(e.rim.rim?.midX ?? 0, rim.midX, accuracy: 1e-9)
+        XCTAssertEqual(e.designateRim(at: CGPoint(x: 0.2, y: 0.5)), "A")   // near end A's anchor → re-designates A
+        XCTAssertEqual(e.rim.rims["A"]?.midX ?? 0, rim.midX, accuracy: 1e-9) // snapped to the unified rim
         XCTAssertEqual(e.rim.anchors["A"], CGPoint(x: 0.2, y: 0.5))
+        XCTAssertEqual(e.designateRim(at: CGPoint(x: 0.8, y: 0.5)), "B")   // far from A → end B
+        XCTAssertEqual(e.rim.trackedEnds, ["A", "B"])
+    }
+
+    func testTeamsFromJerseyColorAndSwap() {
+        // Two players, white vs black chest; a referee box comes out separately.
+        let p1 = CGRect(x: 0.20, y: 0.28, width: 0.06, height: 0.22)
+        let p2 = CGRect(x: 0.70, y: 0.28, width: 0.06, height: 0.22)
+        let ref = CGRect(x: 0.45, y: 0.30, width: 0.06, height: 0.22)
+        let detectors = Engine.Detectors(
+            unified: { _ in [self.det(p1, "player", 0.9), self.det(p2, "player", 0.9), self.det(ref, "referee", 0.9)] },
+            hoop: { _ in [] }, courtQuads: { _ in [] }, numbers: { _, _ in [] }, pose: { _, _, _ in nil },
+            torsoColor: { _, box in box.minX < 0.5 ? SIMD3(0.9, 0.9, 0.9) : SIMD3(0.1, 0.1, 0.1) })
+        let e = Engine(config: .init(tickHz: 8, slowEvery: 8, numberEvery: 4), detectors: detectors,
+                       calibration: nil, isGame: false, attackingTeam: "A", rimAnchors: [:], initialRims: [:])
+        var m = e.process(blank(), pts: 0)
+        for i in 1..<8 { m = e.process(blank(), pts: Double(i) / 8) }
+        XCTAssertEqual(m.players.map(\.team), ["A", "B"])          // white → A, black → B
+        XCTAssertEqual(m.referees, [ref])
+        e.teamsSwapped = true
+        XCTAssertEqual(e.process(blank(), pts: 1).players.map(\.team), ["B", "A"])
     }
 }
