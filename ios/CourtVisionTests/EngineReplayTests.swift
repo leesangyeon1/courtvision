@@ -38,5 +38,9 @@ final class EngineReplayTests: XCTestCase {
         let clip = URL(fileURLWithPath: path)
         let result = try await EngineReplay.run(url: clip)
         try write(result.events, to: clip.deletingPathExtension().appendingPathExtension("events.json"))
+        // Per-tick state for tools/eval + visualization (same path, .moments.json).
+        let moments = try JSONEncoder().encode(result.moments)
+        try moments.write(to: clip.deletingPathExtension().appendingPathExtension("moments.json"))
+        print("MOMENTS_JSON=\(clip.deletingPathExtension().appendingPathExtension("moments.json").path)")
     }
 }

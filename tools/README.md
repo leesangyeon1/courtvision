@@ -28,3 +28,7 @@ against a hand-labeled CSV. Events come from `EngineReplayTests`
 -only-testing:CourtVisionTests/EngineReplayTests/testReplayClipFromEnvironment`
 writes `clip.events.json`) or from Supabase. `--append docs/EVAL.md` records
 the row. Stdlib only. Tests: `python3 -m unittest tools/test_eval_events.py`.
+
+`render_moments.py CLIP MOMENTS.json OUT.mp4` — draws the replay's Moments
+(teams, numbers, rims, ball, refs) onto the clip. `EngineReplayTests`'
+env-var replay writes `CLIP.moments.json` next to the clip. Needs `.venv`.

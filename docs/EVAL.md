@@ -56,3 +56,19 @@ people (near #26, the shooter); `.scaleFit` finds both. Decision: unified →
 `.scaleFit`; HoopDetector stays `.scaleFill` (its rim recall is unchanged
 and it is the primary rim source). Commit: see git log for
 "letterbox the unified model".
+
+## Gym clip (IMG_1673.mov, 720p, 60 s, own footage) — tracking
+
+| build | players/tick median | far segment 20–30 s | distinct ids / 60 s | ids ≥ 5 s | #3 / #8 ticks | ref ticks |
+|---|---|---|---|---|---|---|
+| v1 (`7abeff3`: scaleFit, ghost fix, containment) | 7 | 4.7 | 240 | 27 | 228 / 121 | 113 |
+| v2 (far-band lane, reach + resurrect tracker, draw grace, containment keeps people-behind) | 11 | 10.4 | 51 | 29 | 509 / 498 | 232 |
+
+Levers measured on the way: confidence floor 0.30 → 0.15 adds 0.2 boxes/tick
+(not the lever); far-band second pass adds 2.1 people/tick; containment rule
+removed 91 true fragments and 12 real people (fixed: narrow/offset contained
+boxes stay). Remaining false boxes: floor-light reflections and a ceiling
+light (small, stationary) — hard negatives for the retrain, not tracker work.
+No court fix in 60 s (rectangles) — the keypoint court model (P2) is the fix.
+`tickHz` is now really 6 in `Engine.Config` (the earlier commit missed the
+code; docs said 6, code said 8).

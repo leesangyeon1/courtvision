@@ -55,8 +55,8 @@ Detection output is `Detection {box, label, confidence}` — labels survive.
 1. **Detect** (`ObjectDetector` + finders): core physical objects only —
    ball, rim, player. State classes count as player *evidence*, never as
    extra players (`PlayerFinder.corePlayers` ranks base boxes first).
-2. **Track** (`PlayerTracker`, `BallTrack`): greedy-IoU stable player IDs
-   (2 s tolerance at 2 Hz); ball samples carry their label
+2. **Track** (`PlayerTracker`, `BallTrack`): IoU / center-distance association,
+   2 s tolerance, 3 s resurrect memory; ball samples carry their label
    (`ball-in-basket` is a state read from the track, not a raw frame).
 3. **Classify** (`ActionClassifier`): state-class boxes annotate the
    best-IoU track (`possession`/`jumpShot`/`layupDunk`/`shotBlock`);
@@ -81,6 +81,21 @@ vote. Brighter cluster = A (blue box), darker = B (red), unassigned cyan;
 `referee` class boxes are black and never players. "Teams ⇄" swaps A/B when
 the brightness rule guesses wrong. Ref 02's SigLIP → UMAP → K-means, reduced
 to what a phone needs.
+
+### Far lane (recall at distance)
+A court-level camera puts the far court in the upper-middle of the frame
+where a player is ~20 px after the 960 letterbox. Every `farEvery` ticks the
+unified model runs a second time on that band (`Engine.Config.farBand`,
+Vision ROI) — ~2× pixels per far player, +2 people/tick on the gym clip —
+and its boxes merge into the same tick (ball / numbers / rim benefit too).
+
+### Track identity (lock)
+`PlayerTracker` associates by IoU, else by center distance ≤ 0.75 × body
+height (fast movers, flicker). A track that dies is kept as "lost" for 3 s
+and resumes its id — with jersey-number and team votes — when a detection
+reappears within 1.5 body heights. Moments carry tracks seen this tick plus
+a 2-tick draw grace (`missedTicks`); older boxes are stale and not emitted.
+Referees get their own tracker (black boxes, no ids).
 
 ### Continuity gate (rim + ball)
 `pickRim/pickBall(candidates, near: anchor, within: maxDistance)` — keep the

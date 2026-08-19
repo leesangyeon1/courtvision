@@ -13,16 +13,26 @@ final class Engine {
     struct Config {
         /// Ticks per second. Set from the P0 cost table (docs/EVAL.md); a
         /// serious/critical thermal state halves it.
-        var tickHz: Double = 8
-        /// Rim + court every N ticks (≈1 Hz at 8 Hz).
-        var slowEvery: Int = 8
-        /// Jersey OCR every N ticks (≈2 Hz at 8 Hz).
-        var numberEvery: Int = 4
+        var tickHz: Double = 6
+        /// Rim + court every N ticks (≈1 Hz at 6 Hz).
+        var slowEvery: Int = 6
+        /// Jersey OCR every N ticks (≈2 Hz at 6 Hz).
+        var numberEvery: Int = 3
+        /// Second unified pass on the far band every N ticks (0 = off). The
+        /// far court gets ~2× the pixels per player: +2 people/tick on the
+        /// gym clip (docs/EVAL.md). One extra inference on those ticks.
+        var farEvery: Int = 2
+        /// Upper-middle of the frame — where the far court sits for a
+        /// court-level camera (normalized, top-left origin).
+        var farBand = CGRect(x: 0.15, y: 0.10, width: 0.70, height: 0.50)
+        /// Ticks an unmatched track is still drawn at its last box.
+        var drawGraceTicks = 2
     }
 
     /// Detector seam: real models in the app, synthetic closures in tests.
     struct Detectors {
-        var unified: (CVPixelBuffer) -> [Detection]
+        /// Unified model; a non-nil ROI runs it on that region only.
+        var unified: (CVPixelBuffer, CGRect?) -> [Detection]
         var hoop: (CVPixelBuffer) -> [CGRect]
         var courtQuads: (CVPixelBuffer) -> [[CGPoint]]
         var numbers: ([CGRect], CVPixelBuffer) -> [(point: CGPoint, digits: String)]
@@ -30,7 +40,7 @@ final class Engine {
         var torsoColor: (CVPixelBuffer, CGRect) -> SIMD3<Float>?
 
         static let live = Detectors(
-            unified: { ObjectDetector.unified?.detectAll(in: $0, minConfidence: 0.25) ?? [] },
+            unified: { ObjectDetector.unified?.detectAll(in: $0, minConfidence: 0.25, roi: $1) ?? [] },
             hoop: { ObjectDetector.hoop?.detect(labels: ["rim", "Basketball Hoop"], in: $0,
                                                 maxCount: 4, minConfidence: 0.30).map(\.box) ?? [] },
             courtQuads: { CourtFinder.detectCourtQuadCandidates(in: $0) },
@@ -49,6 +59,7 @@ final class Engine {
     private(set) var court: CourtEstimator
     private var ballTrack = BallTrack()
     private var playerTracker = PlayerTracker()
+    private var refereeTracker = PlayerTracker()
     private var feet = FeetHistory()
     private var teams = TeamAssigner()
     private var tickCount = 0
@@ -77,7 +88,10 @@ final class Engine {
         self.attackingTeam = attackingTeam
         rim = RimTracker(rims: initialRims, anchors: rimAnchors)
         court = CourtEstimator(calibration: calibration)
-        playerTracker.maxMissedTicks = Int((2.0 * config.tickHz).rounded())
+        for keyPath in [\Engine.playerTracker, \Engine.refereeTracker] {
+            self[keyPath: keyPath].maxMissedTicks = Int((2.0 * config.tickHz).rounded())
+            self[keyPath: keyPath].tickSeconds = 1.0 / config.tickHz
+        }
     }
 
     /// Whether a frame at `pts` is due: throttle to `tickHz`, halved when the
@@ -95,7 +109,12 @@ final class Engine {
         tickCount += 1
         flippedThisTick = false
 
-        let all = detectors.unified(pixelBuffer)
+        var all = detectors.unified(pixelBuffer, nil)
+        // ---- far lane: the same model on the far band, more pixels per player
+        if config.farEvery > 0, tickCount % config.farEvery == 1 || config.farEvery == 1 {
+            all += detectors.unified(pixelBuffer, config.farBand)
+            all.sort { $0.confidence > $1.confidence }
+        }
 
         // ---- slow lane: rim + court ------------------------------------
         if tickCount % config.slowEvery == 1 || config.slowEvery == 1 {
@@ -141,12 +160,14 @@ final class Engine {
 
         // ---- teams: jersey color of every player seen this tick ------------
         let liveTracks = tracks.filter { $0.missedTicks == 0 }
+        let drawnTracks = tracks.filter { $0.missedTicks <= config.drawGraceTicks }
         for t in liveTracks {
             if let c = detectors.torsoColor(pixelBuffer, t.box) { teams.observe(track: t.id, color: c) }
         }
         teams.forget(except: Set(tracks.map(\.id)))
-        let referees = PlayerFinder.shapeFiltered(
-            all.filter { $0.label == "referee" && $0.confidence >= 0.30 }).map(\.box)
+        refereeTracker.update(with: PlayerFinder.dedupe(PlayerFinder.shapeFiltered(
+            all.filter { $0.label == "referee" && $0.confidence >= 0.30 })))
+        let referees = refereeTracker.tracks.filter { $0.missedTicks <= config.drawGraceTicks }.map(\.box)
 
         // ---- moment ------------------------------------------------------
         let h = court.h
@@ -155,9 +176,9 @@ final class Engine {
             let q = h.apply(p)
             return (Double(q.x), Double(q.y))
         }
-        // Only tracks SEEN this tick go out (`liveTracks`): an unmatched track
-        // stays in the tracker for re-association, but its box is stale —
-        // never drawn, never emitted (no fake positions).
+        // Tracks seen this tick go out, plus a short draw grace (≤ 2 ticks at
+        // the last box, marked `missedTicks`) so a one-tick flicker doesn't
+        // blink; beyond that an unmatched track is not emitted (stale box).
         let rims = rim.rims
         var farEnds: Set<String> = []
         if court.fullCourt, let h {
@@ -167,12 +188,13 @@ final class Engine {
         }
         let moment = Moment(
             pts: pts, h: h, rims: rims,
-            players: liveTracks.map { t in
+            players: drawnTracks.map { t in
                 let feet = self.feet.groundContact(track: t.id) ?? CGPoint(x: t.box.midX, y: t.box.maxY)
                 let (x, y) = toCourt(feet)
                 return Moment.PlayerState(trackId: t.id, team: teams.team(of: t.id), box: t.box, feet: feet,
                                           xFt: x, yFt: y, action: t.action,
-                                          actionConfidence: t.actionConfidence, number: t.number)
+                                          actionConfidence: t.actionConfidence, number: t.number,
+                                          missedTicks: t.missedTicks)
             },
             ball: ballTrack.last.map { s in
                 let (x, y) = toCourt(s.point)

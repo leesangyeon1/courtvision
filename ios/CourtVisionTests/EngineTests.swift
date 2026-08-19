@@ -24,7 +24,7 @@ final class EngineTests: XCTestCase {
     private func engine(hoop counter: Counter = Counter(), isGame: Bool = false,
                         calibration: Calibration? = nil) -> Engine {
         let detectors = Engine.Detectors(
-            unified: { _ in [self.det(self.player, "player", 0.9),
+            unified: { _, _ in [self.det(self.player, "player", 0.9),
                              self.det(self.ball, "ball", 0.8),
                              self.det(self.rim, "rim", 0.9)] },
             hoop: { _ in counter.n += 1; return [] },
@@ -73,7 +73,7 @@ final class EngineTests: XCTestCase {
     func testAttackingEndFollowsTheSingleLockedRim() {
         // Only end B locked → team B's hoop is the one in frame.
         let detectors = Engine.Detectors(
-            unified: { _ in [self.det(self.rim, "rim", 0.9)] },
+            unified: { _, _ in [self.det(self.rim, "rim", 0.9)] },
             hoop: { _ in [] }, courtQuads: { _ in [] }, numbers: { _, _ in [] },
             pose: { _, _, _ in nil }, torsoColor: { _, _ in nil })
         let e = Engine(config: .init(tickHz: 8, slowEvery: 8, numberEvery: 4), detectors: detectors,
@@ -89,19 +89,63 @@ final class EngineTests: XCTestCase {
     }
 
     func testGhostTracksAreNotInMomentButKeepIdentity() {
-        // Detection flickers off for one tick: the track survives inside the
-        // tracker (same id afterwards) but a stale box is never emitted.
+        // Detection drops out for several ticks: the track survives inside the
+        // tracker (same id afterwards) but its stale box leaves the Moment
+        // after the short draw grace.
         var present = true
         let detectors = Engine.Detectors(
-            unified: { _ in present ? [self.det(self.player, "player", 0.9)] : [] },
+            unified: { _, _ in present ? [self.det(self.player, "player", 0.9)] : [] },
             hoop: { _ in [] }, courtQuads: { _ in [] }, numbers: { _, _ in [] }, pose: { _, _, _ in nil }, torsoColor: { _, _ in nil })
         let e = Engine(config: .init(tickHz: 8, slowEvery: 8, numberEvery: 4), detectors: detectors,
                        calibration: nil, isGame: false, attackingTeam: "A", rimAnchors: [:], initialRims: [:])
         XCTAssertEqual(e.process(blank(), pts: 0).players.map(\.trackId), [1])
         present = false
-        XCTAssertTrue(e.process(blank(), pts: 0.125).players.isEmpty)
+        for i in 1...3 { _ = e.process(blank(), pts: Double(i) / 8) }
+        XCTAssertTrue(e.process(blank(), pts: 0.5).players.isEmpty)          // past the 2-tick draw grace
         present = true
-        XCTAssertEqual(e.process(blank(), pts: 0.25).players.map(\.trackId), [1])
+        XCTAssertEqual(e.process(blank(), pts: 0.625).players.map(\.trackId), [1])
+    }
+
+    func testFarBandLaneMergesIntoTheTickAndRunsOnItsCadence() {
+        // Full-frame pass sees one near player; the far-band pass (ROI) sees a
+        // far one. Both land in the same Moment; the far pass runs every 2nd tick.
+        var farCalls = 0
+        let far = CGRect(x: 0.50, y: 0.30, width: 0.02, height: 0.07)
+        let detectors = Engine.Detectors(
+            unified: { _, roi in
+                if roi != nil { farCalls += 1; return [self.det(far, "player", 0.8)] }
+                return [self.det(self.player, "player", 0.9)]
+            },
+            hoop: { _ in [] }, courtQuads: { _ in [] }, numbers: { _, _ in [] },
+            pose: { _, _, _ in nil }, torsoColor: { _, _ in nil })
+        var config = Engine.Config(tickHz: 8, slowEvery: 8, numberEvery: 4)
+        config.farEvery = 2
+        let e = Engine(config: config, detectors: detectors, calibration: nil, isGame: false,
+                       attackingTeam: "A", rimAnchors: [:], initialRims: [:])
+        let m1 = e.process(blank(), pts: 0)            // tick 1: far pass runs (1 % 2 == 1)
+        XCTAssertEqual(m1.players.count, 2)
+        let m2 = e.process(blank(), pts: 0.125)        // tick 2: no far pass; far player is within draw grace
+        XCTAssertEqual(farCalls, 1)
+        XCTAssertEqual(m2.players.count, 2)
+        XCTAssertEqual(m2.players.first { $0.box == far }?.missedTicks, 1)
+        XCTAssertEqual(m2.players.first { $0.box == self.player }?.missedTicks, 0)
+    }
+
+    func testGraceHidesOneTickFlickerButNotLongerGaps() {
+        var present = true
+        let detectors = Engine.Detectors(
+            unified: { _, _ in present ? [self.det(self.player, "player", 0.9)] : [] },
+            hoop: { _ in [] }, courtQuads: { _ in [] }, numbers: { _, _ in [] },
+            pose: { _, _, _ in nil }, torsoColor: { _, _ in nil })
+        var config = Engine.Config(tickHz: 8, slowEvery: 8, numberEvery: 4)
+        config.farEvery = 0                             // off
+        let e = Engine(config: config, detectors: detectors, calibration: nil, isGame: false,
+                       attackingTeam: "A", rimAnchors: [:], initialRims: [:])
+        _ = e.process(blank(), pts: 0)
+        present = false
+        XCTAssertEqual(e.process(blank(), pts: 0.125).players.map(\.missedTicks), [1])   // grace: still drawn
+        XCTAssertEqual(e.process(blank(), pts: 0.250).players.map(\.missedTicks), [2])
+        XCTAssertTrue(e.process(blank(), pts: 0.375).players.isEmpty)                      // > grace: gone
     }
 
     func testDesignateRimSnapsAndAnchors() {
@@ -120,7 +164,7 @@ final class EngineTests: XCTestCase {
         let p2 = CGRect(x: 0.70, y: 0.28, width: 0.06, height: 0.22)
         let ref = CGRect(x: 0.45, y: 0.30, width: 0.06, height: 0.22)
         let detectors = Engine.Detectors(
-            unified: { _ in [self.det(p1, "player", 0.9), self.det(p2, "player", 0.9), self.det(ref, "referee", 0.9)] },
+            unified: { _, _ in [self.det(p1, "player", 0.9), self.det(p2, "player", 0.9), self.det(ref, "referee", 0.9)] },
             hoop: { _ in [] }, courtQuads: { _ in [] }, numbers: { _, _ in [] }, pose: { _, _, _ in nil },
             torsoColor: { _, box in box.minX < 0.5 ? SIMD3(0.9, 0.9, 0.9) : SIMD3(0.1, 0.1, 0.1) })
         let e = Engine(config: .init(tickHz: 8, slowEvery: 8, numberEvery: 4), detectors: detectors,

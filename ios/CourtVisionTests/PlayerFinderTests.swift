@@ -21,7 +21,11 @@ final class PlayerFinderTests: XCTestCase {
                                  label: "player", confidence: 0.6)          // ~100% inside body, IoU ≈ 0.22
         let neighbour = Detection(box: CGRect(x: 0.47, y: 0.35, width: 0.06, height: 0.20),
                                   label: "player", confidence: 0.7)         // half inside body: a second person
-        XCTAssertEqual(PlayerFinder.dedupe([body, fragment, neighbour]), [body, neighbour])
+        // Fully inside the body box but narrow and off-center: a player standing
+        // BEHIND the near player — a person, not a fragment. Must survive.
+        let behind = Detection(box: CGRect(x: 0.41, y: 0.33, width: 0.03, height: 0.18),
+                               label: "player", confidence: 0.5)
+        XCTAssertEqual(PlayerFinder.dedupe([body, fragment, neighbour, behind]), [body, neighbour, behind])
     }
 
     func testCorePlayersKeepBaseBoxOverStateBox() {

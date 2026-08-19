@@ -3,8 +3,8 @@ import CoreGraphics
 /// One tick of the pipeline on the frame clock. Everything downstream — the
 /// overlay, the shot tracker, the session buffer, post-processing — reads
 /// Moments; nothing downstream reads a detector directly.
-struct Moment: Equatable {
-    struct PlayerState: Equatable {
+struct Moment: Equatable, Codable {
+    struct PlayerState: Equatable, Codable {
         let trackId: Int
         /// "A" / "B" once the team assigner runs (P3); nil until then.
         var team: String?
@@ -20,9 +20,12 @@ struct Moment: Equatable {
         /// Confidence of the state detection that set `action` (0 for `.none`).
         var actionConfidence: Float
         var number: String?
+        /// 0 = seen this tick; 1–2 = not seen, box is the last one (draw
+        /// grace so a flicker doesn't blink — never more than that).
+        var missedTicks: Int = 0
     }
 
-    struct BallState: Equatable {
+    struct BallState: Equatable, Codable {
         var box: CGRect
         /// "ball" or "ball-in-basket" — the state rides the track.
         var label: String
