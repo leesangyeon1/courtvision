@@ -36,4 +36,23 @@ the rim within the 3 s window (rim sits at the frame edge, ball passes
 through the net at ~2.9 s); no court fix from rectangle detection on that
 scene, so no location. Three concrete P1/P2 targets: shooting-state onset vs
 release, ball-in-basket recall at partial rims, and the keypoint court model.
+Correction (commit "letterbox the unified model"): that 0.27 s attempt was a
+`player-jump-shot` false positive on a *different* player's legs under
+`.scaleFill`; under `.scaleFit` the shooter is labeled possession →
+shot-block and no attempt opens. The fixture row above is therefore a false
+positive matched by luck, not a detection — the P1 numbers must come from
+jump-shot clips.
 The P1 baseline paragraph (≥ 5 field clips) goes below this line.
+
+## Detector input scaling (fixture clip, 45 ticks @ 6 Hz, unified model)
+
+| option | player-family boxes ≥0.10 | in 0.7–1.0 conf | dedupe drops | core/tick | ball ticks ≥0.25 | unified rim ticks | HoopDetector rim ticks |
+|---|---|---|---|---|---|---|---|
+| `.scaleFill` (stretch) | 393 | 95 | 133 | 5.4 | 12 | 44 | 45 |
+| `.scaleFit` (letterbox) | 282 | 143 | 67 | 4.5 | 30 | 3 | 44 |
+
+At t = 1 s `.scaleFill` had no box at any confidence on the two largest
+people (near #26, the shooter); `.scaleFit` finds both. Decision: unified →
+`.scaleFit`; HoopDetector stays `.scaleFill` (its rim recall is unchanged
+and it is the primary rim source). Commit: see git log for
+"letterbox the unified model".

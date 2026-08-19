@@ -16,6 +16,12 @@ to them.
   clip. Nothing else was altered.
 - `freethrow.gt.csv`: release at ~1.7 s, ball through the net at ~2.9 s →
   made; shot from the free-throw line (25, 19) on the standard half court.
+- Known limit: the unified model labels this set shot `player-in-possession`
+  then `player-shot-block`, never `player-jump-shot`, and never emits
+  `ball-in-basket` for the frame-edge rim — so the shot pipeline cannot open
+  an attempt here. `EngineReplayTests` therefore asserts rim/ball/player
+  tracking on this clip; a courtside **jump-shot** clip is wanted for the
+  attempt/make assertion.
 
 ## Ground-truth CSV schema
 

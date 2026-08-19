@@ -12,15 +12,22 @@ final class EngineReplayTests: XCTestCase {
         print("EVENTS_JSON=\(url.path)")
     }
 
-    func testBundledClipProducesResolvedAttempts() async throws {
+    /// The fixture is a free throw (set shot): the current model never labels
+    /// it `player-jump-shot`, so no attempt can open — asserting one here would
+    /// only pass on a false positive (which is exactly what `.scaleFill` used
+    /// to produce). This test guards the tracking side of the pipeline; the
+    /// attempt/make assertions need a jump-shot clip (Fixtures/README.md).
+    func testBundledClipTracksRimBallAndPlayers() async throws {
         let bundle = Bundle(for: EngineReplayTests.self)
         let clip = try XCTUnwrap(bundle.url(forResource: "freethrow", withExtension: "mp4"),
                                  "Fixtures/freethrow.mp4 missing from the test bundle")
         let result = try await EngineReplay.run(url: clip)
-        XCTAssertGreaterThan(result.moments.count, 10)
-        let resolved = result.events.filter { $0.kind != .attempt }
-        XCTAssertGreaterThanOrEqual(resolved.count, 1, "no attempt resolved on the fixture clip")
-        XCTAssertTrue(resolved.allSatisfy { $0.resolvedPts != nil })
+        let live = result.moments.filter { $0.pts < 4.4 }                 // before the frozen tail
+        XCTAssertGreaterThan(live.count, 20)
+        XCTAssertGreaterThanOrEqual(live.filter { $0.rim != nil }.count, live.count * 9 / 10, "rim lost")
+        XCTAssertGreaterThanOrEqual(live.filter { $0.ball != nil }.count, live.count / 2, "ball rarely seen")
+        XCTAssertGreaterThanOrEqual(live.filter { $0.players.count >= 3 }.count, live.count * 8 / 10, "players rarely seen")
+        XCTAssertTrue(result.events.filter { $0.kind != .attempt }.allSatisfy { $0.resolvedPts != nil })
         try write(result.events, to: URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("freethrow.events.json"))
     }
 

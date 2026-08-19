@@ -156,6 +156,9 @@ cp -R best.mlpackage ios/CourtVision/<Name>Detector.mlpackage
 ```
 
 Rules learned the hard way:
+- **Letterbox, don't stretch.** Vision `.scaleFit` matches Ultralytics'
+  letterboxed training; `.scaleFill` squashes 16:9 into the square input and
+  the model stops seeing near/large bodies (fixture A/B in docs/EVAL.md).
 - **Resolution before depth** for small objects: v8s@960 beat bigger nets at
   640 for the ball. The ball's failure mode is missing pixels, not missing
   capacity.
