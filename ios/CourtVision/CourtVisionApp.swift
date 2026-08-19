@@ -43,11 +43,13 @@ enum Route: Hashable {
     case calibration(Session)
     case record(Session, Calibration)
     case summary(Session)
+    /// Debug / verification: run the engine over an imported clip.
+    case replay
 
     /// Camera screens are landscape; everything else is portrait.
     var wantsLandscape: Bool {
         switch self {
-        case .calibration, .record: return true
+        case .calibration, .record, .replay: return true
         case .newSession, .summary: return false
         }
     }
@@ -77,7 +79,18 @@ struct RootView: View {
             if !Config.isConfigured {
                 SetupNoticeView()
             } else if supabase.userId == nil {
-                LoginView()
+                NavigationStack(path: $flow.path) {
+                    LoginView()
+                        .safeAreaInset(edge: .bottom) {
+                            // Replay needs no account — the debug door.
+                            Button("Replay a video…") { flow.path.append(.replay) }
+                                .font(.footnote).padding(.bottom, 8)
+                        }
+                        .navigationDestination(for: Route.self) { route in
+                            if case .replay = route { ReplayView() }
+                        }
+                }
+                .environmentObject(flow)
             } else {
                 NavigationStack(path: $flow.path) {
                     PlayersView()
@@ -91,6 +104,8 @@ struct RootView: View {
                                 RecordView(session: session, calibration: calibration)
                             case .summary(let session):
                                 SessionSummaryView(session: session)
+                            case .replay:
+                                ReplayView()
                             }
                         }
                 }

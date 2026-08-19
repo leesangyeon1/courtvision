@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct PlayersView: View {
+    @EnvironmentObject private var flow: FlowModel
     @State private var players: [Player] = []
     @State private var errorMessage: String?
     @State private var showCreate = false
@@ -31,6 +32,10 @@ struct PlayersView: View {
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Button { showCreate = true } label: { Image(systemName: "plus") }
+            }
+            ToolbarItem(placement: .topBarTrailing) {
+                // Debug / verification: the engine over an imported clip.
+                Button { flow.path.append(.replay) } label: { Image(systemName: "film") }
             }
             ToolbarItem(placement: .topBarLeading) {
                 Button("Sign Out") {

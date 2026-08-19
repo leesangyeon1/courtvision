@@ -20,63 +20,14 @@ struct RecordView: View {
         ZStack {
             CameraPreviewView(camera: flow.camera, holder: previewHolder)
                 .overlay {
-                    // Rim rect is buffer-space (capture-device normalized,
+                    // Boxes are buffer-space (capture-device normalized,
                     // top-left origin); convert through the preview layer.
-                    Canvas { context, _ in
-                        guard let layer = previewHolder.layer else { return }
-                        // Locked rims, one per end, with the end letter.
-                        for (end, rim) in model.rims.sorted(by: { $0.key < $1.key }) {
-                            let rect = layer.layerRectConverted(fromMetadataOutputRect: rim)
-                            context.stroke(Path(rect), with: .color(.orange), lineWidth: 3)
-                            context.draw(Text(end).font(.caption.bold()).foregroundStyle(.orange),
-                                         at: CGPoint(x: rect.minX + 2, y: rect.minY - 8), anchor: .bottomLeading)
-                        }
-                        // Ball trail: fading dots ending in a circle on the
-                        // current position (same visual language as the rim).
-                        let samples = model.ballTrail
-                        for (i, sample) in samples.enumerated() {
-                            let vp = layer.layerPointConverted(fromCaptureDevicePoint: sample.point)
-                            let alpha = 0.25 + 0.75 * Double(i + 1) / Double(samples.count)
-                            let dot = CGRect(x: vp.x - 3, y: vp.y - 3, width: 6, height: 6)
-                            context.fill(Path(ellipseIn: dot), with: .color(.yellow.opacity(alpha)))
-                        }
-                        if let current = samples.last {
-                            let rect = layer.layerRectConverted(fromMetadataOutputRect: current.box)
-                            context.stroke(Path(ellipseIn: rect), with: .color(.yellow), lineWidth: 2)
-                        }
-                        // Referees: black, no id.
-                        for ref in model.referees {
-                            context.stroke(Path(layer.layerRectConverted(fromMetadataOutputRect: ref)),
-                                           with: .color(.black), lineWidth: 2)
-                        }
-                        // Player boxes — team A blue, team B red, unassigned
-                        // cyan: jersey number top-right, action badge
-                        // (SHOT/LAYUP/…) bottom-left.
-                        for player in model.players {
-                            let color: Color = player.team == "A" ? .blue : player.team == "B" ? .red : .cyan
-                            let rect = layer.layerRectConverted(fromMetadataOutputRect: player.box)
-                            context.stroke(Path(rect), with: .color(color), lineWidth: 2)
-                            if let number = player.number {
-                                context.draw(
-                                    Text("#\(number)")
-                                        .font(.caption.bold())
-                                        .foregroundStyle(color),
-                                    at: CGPoint(x: rect.maxX - 2, y: rect.minY - 8),
-                                    anchor: .bottomTrailing
-                                )
-                            }
-                            if player.action != .none {
-                                context.draw(
-                                    Text(player.action.short)
-                                        .font(.caption2.bold())
-                                        .foregroundStyle(.orange),
-                                    at: CGPoint(x: rect.minX + 2, y: rect.maxY + 2),
-                                    anchor: .topLeading
-                                )
-                            }
-                        }
+                    if let layer = previewHolder.layer {
+                        MomentOverlay(players: model.players, referees: model.referees, rims: model.rims,
+                                      ballTrail: model.ballTrail,
+                                      rect: { layer.layerRectConverted(fromMetadataOutputRect: $0) },
+                                      point: { layer.layerPointConverted(fromCaptureDevicePoint: $0) })
                     }
-                    .allowsHitTesting(false)
                 }
                 .contentShape(Rectangle())
                 .onTapGesture { location in

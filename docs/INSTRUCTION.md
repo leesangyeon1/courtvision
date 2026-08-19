@@ -25,6 +25,17 @@ Principles that override everything else:
 - **One module, one branch**: `rim`, `ball`, `player`, `court`, integration
   on `dev`. Field-test a module before it graduates.
 
+## 0.1 Platforms and the Replay screen
+
+One target, three platforms: iPhone, iPad (device family 1,2) and macOS via
+Mac Catalyst (`SUPPORTS_MACCATALYST`). Xcode destination "My Mac (Mac
+Catalyst)" runs the app on the Mac with breakpoints. **Replay** (film icon
+on Players, or "Replay a video…" on the login screen — no account needed):
+import a `.mov`/`.mp4` → the same `Engine` runs on its frames → the same
+overlay as Record (teams, numbers, rims, ball, refs), play/pause, 1× or max
+speed, tap to lock rims, "Teams ⇄", export `moments.json` / `events.json`.
+Headless twin: `EngineReplayTests` + `tools/render_moments.py`.
+
 ## 1. Architecture — a stack of small specialists
 
 One big model is a server-side idea. On-device, cost is
