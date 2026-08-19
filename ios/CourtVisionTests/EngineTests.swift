@@ -98,6 +98,22 @@ final class EngineTests: XCTestCase {
         XCTAssertEqual(m.players[0].feet.y, 0.49, accuracy: 1e-6)     // the floor sample, not the airborne box
     }
 
+    func testGhostTracksAreNotInMomentButKeepIdentity() {
+        // Detection flickers off for one tick: the track survives inside the
+        // tracker (same id afterwards) but a stale box is never emitted.
+        var present = true
+        let detectors = Engine.Detectors(
+            unified: { _ in present ? [self.det(self.player, "player", 0.9)] : [] },
+            hoop: { _ in [] }, courtQuads: { _ in [] }, numbers: { _, _ in [] }, pose: { _, _, _ in nil })
+        let e = Engine(config: .init(tickHz: 8, slowEvery: 8, numberEvery: 4), detectors: detectors,
+                       calibration: nil, isGame: false, attackingTeam: "A", rimAnchors: [:], initialRim: nil)
+        XCTAssertEqual(e.process(blank(), pts: 0).players.map(\.trackId), [1])
+        present = false
+        XCTAssertTrue(e.process(blank(), pts: 0.125).players.isEmpty)
+        present = true
+        XCTAssertEqual(e.process(blank(), pts: 0.25).players.map(\.trackId), [1])
+    }
+
     func testDesignateRimSnapsAndAnchors() {
         let e = engine()
         _ = e.process(blank(), pts: 0)

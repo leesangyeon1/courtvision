@@ -135,9 +135,12 @@ final class Engine {
             let q = h.apply(p)
             return (Double(q.x), Double(q.y))
         }
+        // Only tracks SEEN this tick go out: an unmatched track stays in the
+        // tracker for re-association, but its box is stale — never drawn,
+        // never emitted (no fake positions).
         let moment = Moment(
             pts: pts, h: h, rim: rim.rim,
-            players: tracks.map { t in
+            players: tracks.filter { $0.missedTicks == 0 }.map { t in
                 let feet = self.feet.groundContact(track: t.id) ?? CGPoint(x: t.box.midX, y: t.box.maxY)
                 let (x, y) = toCourt(feet)
                 return Moment.PlayerState(trackId: t.id, team: nil, box: t.box, feet: feet,
