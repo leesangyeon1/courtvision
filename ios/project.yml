@@ -20,6 +20,8 @@ targets:
         GENERATE_INFOPLIST_FILE: YES
         DEVELOPMENT_TEAM: X7U33S22NA   # automatic signing for device builds (xcodegen regenerates the project)
         CODE_SIGN_STYLE: Automatic
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        INFOPLIST_KEY_ITSAppUsesNonExemptEncryption: NO   # TestFlight: no export-compliance prompt
         INFOPLIST_KEY_NSCameraUsageDescription: "CourtVision analyzes your shot using the camera."
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
         # Portrait app; the camera screens force landscape-right at runtime
