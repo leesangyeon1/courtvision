@@ -13,7 +13,7 @@ tick rate halves under serious/critical).
 | date | device | commit | tickHz | slowEvery | ms/tick (median) | thermal @10 min | notes |
 |---|---|---|---|---|---|---|---|
 | YYYY-MM-DD | iPhone … | … | 5 | 5 | | | |
-| YYYY-MM-DD | iPhone … | … | 8 | 8 | | | |
+| 2026-08-18 | iPhone 15 Plus (iPhone (5)) | fae8a8a | 8 | 8 | ~159 (125–217 across 6 status readings, field session, incl. pose) | not recorded | rate self-throttles to ~6 Hz; 8 not sustainable |
 | YYYY-MM-DD | iPhone … | … | 10 | 10 | | | |
 
 Chosen default: `Engine.Config.tickHz = 8` (provisional — the pre-engine ball

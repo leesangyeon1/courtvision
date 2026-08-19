@@ -24,7 +24,7 @@ struct ShotEvent: Equatable, Codable {
 /// inside the window resolves it MADE; window expiry resolves it MISSED; a
 /// cooldown separates attempts (a putback is a new attempt).
 struct ShotEventTracker: Equatable {
-    /// Consecutive shooting-state ticks needed to open (2 ≈ 0.25 s at 8 Hz).
+    /// Consecutive shooting-state ticks needed to open (2 ≈ 0.33 s at 6 Hz).
     var minStartTicks = 2
     /// Seconds after the start in which ball-in-basket counts as this attempt.
     var windowSec: Double = 3.0
