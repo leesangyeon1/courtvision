@@ -36,8 +36,8 @@ struct CourtVisionApp: App {
     }
 }
 
-/// Navigation routes for the auth-gated flow:
-/// Login → Players → NewSession → Calibration → Record → Summary.
+/// Navigation routes:
+/// Players → NewSession → Calibration → Record → Summary (and Replay).
 enum Route: Hashable {
     case newSession(Player)
     case calibration(Session)
@@ -79,16 +79,24 @@ struct RootView: View {
             if !Config.isConfigured {
                 SetupNoticeView()
             } else if supabase.userId == nil {
+                // No login screen: the session is being created silently.
                 NavigationStack(path: $flow.path) {
-                    LoginView()
-                        .safeAreaInset(edge: .bottom) {
-                            // Replay needs no account — the debug door.
-                            Button("Replay a video…") { flow.path.append(.replay) }
-                                .font(.footnote).padding(.bottom, 8)
+                    VStack(spacing: 12) {
+                        if let error = supabase.authError {
+                            Text("Can't connect to Supabase").font(.headline)
+                            Text(error).font(.footnote).foregroundStyle(.secondary)
+                                .multilineTextAlignment(.center).padding(.horizontal)
+                            Button("Retry") { Task { await supabase.restoreSession() } }
+                        } else {
+                            ProgressView("Connecting…")
                         }
-                        .navigationDestination(for: Route.self) { route in
-                            if case .replay = route { ReplayView() }
-                        }
+                        // Replay needs no account — the debug door.
+                        Button("Replay a video…") { flow.path.append(.replay) }
+                            .font(.footnote).padding(.top, 16)
+                    }
+                    .navigationDestination(for: Route.self) { route in
+                        if case .replay = route { ReplayView() }
+                    }
                 }
                 .environmentObject(flow)
             } else {

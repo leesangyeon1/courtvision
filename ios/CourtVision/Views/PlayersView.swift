@@ -37,11 +37,6 @@ struct PlayersView: View {
                 // Debug / verification: the engine over an imported clip.
                 Button { flow.path.append(.replay) } label: { Image(systemName: "film") }
             }
-            ToolbarItem(placement: .topBarLeading) {
-                Button("Sign Out") {
-                    Task { await SupabaseService.shared.signOut() }
-                }
-            }
         }
         .sheet(isPresented: $showCreate) {
             CreatePlayerView { players.append($0) }

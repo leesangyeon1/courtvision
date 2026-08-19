@@ -27,7 +27,8 @@ Principles that override everything else:
 
 ## 0.1 Platforms and the Replay screen
 
-One target, three platforms: iPhone, iPad (device family 1,2) and macOS via
+No login screen: the phone signs in silently (device account from
+`Config.swift`, else anonymous sign-in). One target, three platforms: iPhone, iPad (device family 1,2) and macOS via
 Mac Catalyst (`SUPPORTS_MACCATALYST`). Xcode destination "My Mac (Mac
 Catalyst)" runs the app on the Mac with breakpoints. **Replay** (film icon
 on Players, or "Replay a video…" on the login screen — no account needed):
