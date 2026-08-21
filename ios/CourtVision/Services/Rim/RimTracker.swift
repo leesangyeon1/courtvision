@@ -1,21 +1,17 @@
 import CoreGraphics
 
-/// Rim continuity (RIM MODULE) for up to two ends, "A" and "B" — the hoops
-/// team A and team B attack. Each end has its own tap anchor and its own
-/// occlusion / reacquire state; nothing locks without an anchor (practice
-/// gyms hang side baskets, and "most confident" would happily pick one).
-/// A tap is authoritative: detections refine a rim locally, never move it.
+/// Rim positions (RIM MODULE) for a FIXED camera, up to two ends "A" and "B"
+/// (the hoops those teams attack). Nothing locks without a tap — practice
+/// gyms hang side baskets and "most confident" would pick one. Once tapped a
+/// rim is permanent: detections within a small gate refine it, occlusion
+/// changes nothing (the camera doesn't move, so neither does the rim), and
+/// there is no reacquire state. Only `invalidate` (tripod bump) or a re-tap
+/// moves an end.
 struct RimTracker: Equatable {
-    enum State: Equatable { case tracking, reacquiring }
-
     struct End: Equatable {
         var anchor: CGPoint
-        /// Locked rim (normalized, top-left origin, padded 15%). Nil while
-        /// reacquiring — a lost rim is not drawn or used.
-        var rim: CGRect?
-        var state: State = .tracking
-        var lastSeenPts: Double
-        var stableTicks = 0
+        /// Locked rim (normalized, top-left origin, padded 15%).
+        var rim: CGRect
     }
 
     static let endIds = ["A", "B"]
@@ -23,71 +19,51 @@ struct RimTracker: Equatable {
     private(set) var ends: [String: End] = [:]
     /// Candidates from the last tick — a tap snaps to the nearest one.
     private(set) var lastCandidates: [CGRect] = []
-    /// pts at which the most recent reacquire began (any end).
-    private(set) var lastReacquirePts: Double?
+    /// The tripod was bumped: rims are wrong until the user re-taps. Shots
+    /// resolved before this instant keep their fix; later ones wait.
+    private(set) var stale = false
+    private(set) var staleSincePts: Double?
+    /// pts of the most recent bump, never cleared: an attempt from before it
+    /// must not be located with a fit solved after it (different image space).
+    private(set) var lastInvalidatedPts: Double?
 
-    /// Seconds without a sighting before an end reacquires — players occlude
-    /// the rim constantly, a contested possession must not drop the track.
-    var occlusionTolerance: Double = 4.0
-    /// Rim-center jump (fraction of frame) that means the camera is panning.
-    var jumpThreshold: CGFloat = 0.15
+    /// Detections farther than this from the locked rim can't refine it.
+    var refineGate: CGFloat = 0.1
 
     /// Seed from a previous session / calibration (`ManualRimDetector`).
     init(rims: [String: CGRect] = [:], anchors: [String: CGPoint] = [:], pts: Double = 0) {
         for id in Self.endIds {
-            if let a = anchors[id] ?? rims[id].map({ CGPoint(x: $0.midX, y: $0.midY) }) {
-                ends[id] = End(anchor: a, rim: rims[id], lastSeenPts: pts)
+            if let rim = rims[id] {
+                ends[id] = End(anchor: anchors[id] ?? CGPoint(x: rim.midX, y: rim.midY), rim: rim)
             }
         }
     }
 
-    /// Locked rims by end (only ends currently tracking).
+    /// Locked rims by end (empty while stale — no fake rims after a bump).
     var rims: [String: CGRect] {
-        ends.compactMapValues { $0.state == .tracking ? $0.rim : nil }
+        stale ? [:] : ends.mapValues(\.rim)
     }
     var trackedEnds: [String] { Self.endIds.filter { rims[$0] != nil } }
     var anchors: [String: CGPoint] { ends.mapValues(\.anchor) }
-    func state(of end: String) -> State? { ends[end]?.state }
 
-    /// One rim tick (slow lane, ≈1 Hz) for every anchored end.
+    /// One rim tick (slow lane, ≈1 Hz): a candidate close to a locked rim
+    /// refines it in place. That's all — the camera is fixed.
     mutating func update(candidates: [CGRect], pts: Double) {
         lastCandidates = candidates
-        for id in ends.keys.sorted() {
-            var e = ends[id]!
-            switch e.state {
-            case .tracking:
-                let center = e.rim.map { CGPoint(x: $0.midX, y: $0.midY) } ?? e.anchor
-                if let r = RimFinder.pickRim(candidates: candidates, near: center, within: 0.2) {
-                    let padded = Self.pad(r)
-                    if let current = e.rim,
-                       hypot(padded.midX - current.midX, padded.midY - current.midY) > jumpThreshold {
-                        e.state = .reacquiring; e.stableTicks = 0; e.rim = nil   // rim jumped — camera moving
-                        lastReacquirePts = pts
-                    } else {
-                        e.lastSeenPts = pts
-                        e.rim = padded
-                    }
-                } else if pts - e.lastSeenPts > occlusionTolerance {
-                    e.state = .reacquiring; e.stableTicks = 0; e.rim = nil       // rim gone
-                    lastReacquirePts = pts
-                }
-            case .reacquiring:
-                if let r = RimFinder.pickRim(candidates: candidates, near: e.anchor, within: 0.25) {
-                    e.lastSeenPts = pts
-                    e.stableTicks += 1
-                    if e.stableTicks >= 2 { e.state = .tracking; e.rim = Self.pad(r) }  // steady two ticks
-                } else {
-                    e.stableTicks = 0
-                }
+        guard !stale else { return }
+        for id in ends.keys {
+            let center = CGPoint(x: ends[id]!.rim.midX, y: ends[id]!.rim.midY)
+            if let r = RimFinder.pickRim(candidates: candidates, near: center, within: refineGate) {
+                ends[id]!.rim = Self.pad(r)
             }
-            ends[id] = e
         }
     }
 
-    /// Tap = "track THIS hoop": snap to the nearest candidate within 12% of
+    /// Tap = "the hoop is HERE": snap to the nearest candidate within 12% of
     /// the frame (else a default box). The tap goes to the end whose anchor
     /// is within 0.25 of it (re-designate), else the first free end, else
-    /// the nearest end. Returns the end id.
+    /// the nearest end. A tap also clears `stale` for that setup —
+    /// re-tapping after a bump is the recalibration. Returns the end id.
     @discardableResult
     mutating func designate(at point: CGPoint, pts: Double) -> String {
         let snapped = RimFinder.pickRim(candidates: lastCandidates, near: point, within: 0.12)
@@ -103,8 +79,18 @@ struct RimTracker: Equatable {
         } else {
             id = near?.key ?? "A"
         }
-        ends[id] = End(anchor: point, rim: rim, state: .tracking, lastSeenPts: pts, stableTicks: 0)
+        ends[id] = End(anchor: point, rim: rim)
+        stale = false
+        staleSincePts = nil
         return id
+    }
+
+    /// The tripod moved (gyro bump, manual recalibrate): every rim is wrong
+    /// until the user re-taps. Anchors are kept only as tap hints.
+    mutating func invalidate(pts: Double) {
+        stale = true
+        staleSincePts = pts
+        lastInvalidatedPts = pts
     }
 
     static func pad(_ r: CGRect) -> CGRect {

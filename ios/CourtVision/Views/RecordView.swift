@@ -130,7 +130,8 @@ struct RecordView: View {
 @MainActor
 final class RecordModel: ObservableObject {
     @Published var attackingTeam = "A"
-    @Published var trackState: RimTracker.State = .tracking
+    /// Set when the tripod-bump watcher fires: rims + court fix are stale
+    /// until the user re-taps the hoops.
     @Published var trackingNote: String?
     @Published var courtStatus = "Court: waiting for first fix…"
     @Published var ballStatus = "Ball: searching…"
@@ -168,8 +169,7 @@ final class RecordModel: ObservableObject {
         engine.designateRim(at: point)
         rims = engine.rim.rims
         ManualRimDetector.shared.rimRects = RimTracker.endIds.compactMap { rims[$0] }
-        trackState = .tracking
-        trackingNote = nil
+        trackingNote = engine.rim.stale ? trackingNote : nil
     }
 
     func swapTeams() {
@@ -230,9 +230,7 @@ final class RecordModel: ObservableObject {
         if engine.attackingTeam != attackingTeam { attackingTeam = engine.attackingTeam }
         referees = m.referees
         rims = m.rims
-        let reacquiring = RimTracker.endIds.filter { engine.rim.state(of: $0) == .reacquiring }
-        trackState = reacquiring.isEmpty ? .tracking : .reacquiring
-        trackingNote = reacquiring.isEmpty ? nil : "Re-acquiring hoop \(reacquiring.joined(separator: "+"))… hold steady"
+        trackingNote = engine.rim.stale ? "Camera moved — tap the hoops to recalibrate" : nil
         let persisted = RimTracker.endIds.compactMap { m.rims[$0] }
         if !persisted.isEmpty, ManualRimDetector.shared.rimRects != persisted {
             ManualRimDetector.shared.rimRects = persisted
@@ -277,7 +275,7 @@ final class RecordModel: ObservableObject {
     }
 
     private func fixStillApplies(since pts: Double) -> Bool {
-        (engine?.rim.lastReacquirePts ?? -.infinity) < pts
+        (engine?.rim.lastInvalidatedPts ?? -.infinity) < pts
     }
 
     private func emit(_ e: ShotEvent, court: CGPoint) {

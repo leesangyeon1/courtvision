@@ -16,44 +16,44 @@ final class RimTrackerTests: XCTestCase {
         XCTAssertEqual(t.rims["B"]?.midX ?? 0, hoopB.midX, accuracy: 1e-9)
         t.update(candidates: [sideHoop], pts: 3)                 // only the side hoop visible
         XCTAssertEqual(t.rims["A"]?.midX ?? 0, hoopA.midX, accuracy: 1e-9)
-        XCTAssertEqual(t.rims["B"]?.midX ?? 0, hoopB.midX, accuracy: 1e-9)
-        // A tap near an existing end re-designates that end (moves it), no third end.
+        // A tap near an existing end re-designates that end, no third end.
         XCTAssertEqual(t.designate(at: CGPoint(x: 0.22, y: 0.24), pts: 4), "A")
         XCTAssertEqual(t.rims.count, 2)
     }
 
-    func testEachEndTracksOccludesAndReacquiresIndependently() {
+    func testOcclusionNeverDropsARim() {
+        // Fixed camera: the rim is where it was even when players hide it for
+        // minutes. No reacquire state exists.
         var t = RimTracker()
-        t.update(candidates: [hoopA, hoopB], pts: 0)
+        t.update(candidates: [hoopA], pts: 0)
         _ = t.designate(at: CGPoint(x: 0.2, y: 0.23), pts: 0)
-        _ = t.designate(at: CGPoint(x: 0.8, y: 0.25), pts: 0)
-        for s in 1...4 { t.update(candidates: [hoopB], pts: Double(s)) }        // A occluded 4 s: tolerated
-        XCTAssertEqual(t.state(of: "A"), .tracking)
-        t.update(candidates: [hoopB], pts: 4.5)
-        XCTAssertEqual(t.state(of: "A"), .reacquiring)
-        XCTAssertEqual(t.state(of: "B"), .tracking)
-        XCTAssertEqual(t.lastReacquirePts, 4.5)
-        XCTAssertEqual(t.trackedEnds, ["B"])                                    // A dropped from rims while lost
-        t.update(candidates: [hoopA, hoopB], pts: 5)                             // A back near its anchor
-        t.update(candidates: [hoopA, hoopB], pts: 6)
-        XCTAssertEqual(t.state(of: "A"), .tracking)
-        XCTAssertEqual(Set(t.trackedEnds), ["A", "B"])
+        for s in 1...600 { t.update(candidates: [], pts: Double(s)) }   // 10 min occluded
+        XCTAssertEqual(t.rims["A"]?.midX ?? 0, hoopA.midX, accuracy: 1e-9)
+        // A detection drifting slightly refines it; a far candidate can't move it.
+        t.update(candidates: [hoopA.offsetBy(dx: 0.01, dy: 0)], pts: 601)
+        XCTAssertEqual(t.rims["A"]?.midX ?? 0, hoopA.midX + 0.01, accuracy: 1e-9)
+        t.update(candidates: [sideHoop], pts: 602)
+        XCTAssertEqual(t.rims["A"]?.midX ?? 0, hoopA.midX + 0.01, accuracy: 1e-9)
     }
 
-    func testBigJumpTriggersReacquireForThatEndOnly() {
+    func testInvalidateMarksStaleUntilRetap() {
         var t = RimTracker()
-        t.update(candidates: [hoopA, hoopB], pts: 0)
+        t.update(candidates: [hoopA], pts: 0)
         _ = t.designate(at: CGPoint(x: 0.2, y: 0.23), pts: 0)
-        _ = t.designate(at: CGPoint(x: 0.8, y: 0.25), pts: 0)
-        // Inside the 0.2 gate, beyond the 0.15 jump threshold: camera panning near A.
-        t.update(candidates: [hoopA.offsetBy(dx: 0.18, dy: 0), hoopB], pts: 1)
-        XCTAssertEqual(t.state(of: "A"), .reacquiring)
-        XCTAssertEqual(t.state(of: "B"), .tracking)
+        t.invalidate(pts: 5)                                     // tripod bump
+        XCTAssertTrue(t.stale)
+        XCTAssertEqual(t.staleSincePts, 5)
+        XCTAssertTrue(t.rims.isEmpty)                            // stale rims are not served
+        t.update(candidates: [hoopA], pts: 6)
+        XCTAssertTrue(t.rims.isEmpty)                            // detections alone can't clear a bump
+        t.update(candidates: [hoopA], pts: 7)
+        _ = t.designate(at: CGPoint(x: 0.2, y: 0.23), pts: 7)    // user re-taps
+        XCTAssertFalse(t.stale)
+        XCTAssertEqual(t.lastInvalidatedPts, 5)                  // survives the re-tap
+        XCTAssertEqual(t.rims["A"]?.midX ?? 0, hoopA.midX, accuracy: 1e-9)
     }
 
     func testNoAnchorNoLock() {
-        // Untapped: candidates are remembered for a tap, never auto-locked
-        // (side baskets would win otherwise).
         var t = RimTracker()
         t.update(candidates: [sideHoop], pts: 0)
         XCTAssertTrue(t.rims.isEmpty)
