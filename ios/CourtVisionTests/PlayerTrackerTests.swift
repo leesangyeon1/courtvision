@@ -33,7 +33,8 @@ final class PlayerTrackerTests: XCTestCase {
     func testLostTrackResurrectsNearbyWithItsNumber() {
         var tracker = PlayerTracker()
         _ = tracker.update(with: [det(0.40)])
-        for _ in 0..<3 { tracker.assign(numbers: [(point: CGPoint(x: 0.43, y: 0.5), digits: "23")]) }
+        let chest = CGRect(x: 0.42, y: 0.46, width: 0.02, height: 0.03)
+        for _ in 0..<3 { tracker.assign(numbers: [(box: chest, digits: "23")]) }
         // Occluded for 2 s (track dies)…
         for _ in 0..<tracker.maxMissedTicks { _ = tracker.update(with: []) }
         XCTAssertTrue(tracker.tracks.isEmpty)
@@ -54,10 +55,12 @@ final class PlayerTrackerTests: XCTestCase {
         XCTAssertEqual(tracker.update(with: [det(0.40)]).map(\.id), [2])    // too long ago: a new identity
     }
 
-    func testNumberMajorityVotePersists() {
+    func testNumberAssignmentByIoSMajorityVotePersists() {
         var tracker = PlayerTracker()
         _ = tracker.update(with: [det(0.40)])
-        let read = { (d: String) in [(point: CGPoint(x: 0.43, y: 0.5), digits: d)] }
+        // Chest-sized number region fully inside the player box (IoS 1).
+        let inside = CGRect(x: 0.42, y: 0.46, width: 0.02, height: 0.03)
+        let read = { (d: String) in [(box: inside, digits: d)] }
         tracker.assign(numbers: read("23"))
         tracker.assign(numbers: read("28"))   // one misread
         tracker.assign(numbers: read("23"))
@@ -65,8 +68,11 @@ final class PlayerTrackerTests: XCTestCase {
         // Jersey turns away — no reads — the number persists with the track.
         _ = tracker.update(with: [det(0.41)])
         XCTAssertEqual(tracker.tracks[0].number, "23")
-        // A read landing on no track is dropped (scoreboard digit).
-        tracker.assign(numbers: [(point: CGPoint(x: 0.95, y: 0.05), digits: "7")])
+        // Scoreboard digits: region not ≥90% inside any player box → dropped.
+        tracker.assign(numbers: [(box: CGRect(x: 0.94, y: 0.05, width: 0.03, height: 0.04), digits: "7")])
         XCTAssertEqual(tracker.tracks[0].number, "23")
+        // Half-overlapping region (player walking past a floor sticker) → dropped too.
+        tracker.assign(numbers: [(box: CGRect(x: 0.385, y: 0.5, width: 0.03, height: 0.03), digits: "9")])
+        XCTAssertEqual(tracker.tracks[0].numberTally["9"], nil)
     }
 }

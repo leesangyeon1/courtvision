@@ -22,9 +22,12 @@ final class Engine {
         /// far court gets ~2× the pixels per player: +2 people/tick on the
         /// gym clip (docs/EVAL.md). One extra inference on those ticks.
         var farEvery: Int = 2
-        /// Upper-middle of the frame — where the far court sits for a
-        /// court-level camera (normalized, top-left origin).
+        /// Fallback far ROI until the court fit yields computed tiles
+        /// (normalized, top-left origin).
         var farBand = CGRect(x: 0.15, y: 0.10, width: 0.70, height: 0.50)
+        /// Computed tiles across the court length (spec open question: 2 vs
+        /// 3; 3 = 0.75× scale on a 4K frame — decide from measurement).
+        var tileCount = 3
         /// Ticks an unmatched track is still drawn at its last box.
         var drawGraceTicks = 2
     }
@@ -35,7 +38,7 @@ final class Engine {
         var unified: (CVPixelBuffer, CGRect?) -> [Detection]
         var hoop: (CVPixelBuffer) -> [CGRect]
         var courtQuads: (CVPixelBuffer) -> [[CGPoint]]
-        var numbers: ([CGRect], CVPixelBuffer) -> [(point: CGPoint, digits: String)]
+        var numbers: ([CGRect], CVPixelBuffer) -> [(box: CGRect, digits: String)]
         var pose: (CVPixelBuffer, CGRect, Double) -> PoseReader.Sample?
         var torsoColor: (CVPixelBuffer, CGRect) -> SIMD3<Float>?
 
@@ -57,6 +60,9 @@ final class Engine {
 
     private(set) var rim: RimTracker
     private(set) var court: CourtEstimator
+    /// Computed far-lane ROIs (from the court fit); empty → guessed band.
+    private(set) var tiles: [CGRect] = []
+    private var tileIndex = 0
     private var ballTrack = BallTrack()
     private var playerTracker = PlayerTracker()
     private var refereeTracker = PlayerTracker()
@@ -110,9 +116,17 @@ final class Engine {
         flippedThisTick = false
 
         var all = detectors.unified(pixelBuffer, nil)
-        // ---- far lane: the same model on the far band, more pixels per player
+        // ---- far lane: one computed tile per pass, round-robin (A→B→C…);
+        // the guessed band until the court fit gives real tiles.
         if config.farEvery > 0, tickCount % config.farEvery == 1 || config.farEvery == 1 {
-            all += detectors.unified(pixelBuffer, config.farBand)
+            let roi: CGRect
+            if tiles.isEmpty {
+                roi = config.farBand
+            } else {
+                roi = tiles[tileIndex % tiles.count]
+                tileIndex += 1
+            }
+            all += detectors.unified(pixelBuffer, roi)
             all.sort { $0.confidence > $1.confidence }
         }
 
@@ -127,6 +141,14 @@ final class Engine {
             rim.update(candidates: candidates, pts: pts)
             court.update(quadCandidates: detectors.courtQuads(pixelBuffer),
                          rims: rim.trackedEnds.compactMap { rim.rims[$0] })
+            // Tiles follow the fit's lifecycle: computed when locked, gone when not.
+            if court.locked, let h = court.h, tiles.isEmpty {
+                tiles = CourtEstimator.tiles(h: h, count: config.tileCount,
+                                             lengthFt: court.fullCourt ? ZoneMapper.fullCourtLengthFt
+                                                                       : ZoneMapper.courtDepthFt)
+            } else if !court.locked {
+                tiles = []
+            }
             // Which end is in play: exactly one locked rim says so outright
             // (the camera is looking at that hoop). Both locked → per-shot.
             if rim.trackedEnds.count == 1, let only = rim.trackedEnds.first, only != attackingTeam {

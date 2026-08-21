@@ -6,11 +6,12 @@ import Vision
 /// Jersey-number reading (PLAYER MODULE): the trained model detects `number`
 /// regions on jerseys; Vision OCR reads the digits from just those regions
 /// (regionOfInterest — no full-frame text pass). Non-numeric reads are
-/// dropped, so a sponsor logo never becomes a jersey number.
+/// dropped, so a sponsor logo never becomes a jersey number. Returns the
+/// region BOX for IoS matching against player boxes.
 enum NumberReader {
     /// Digits found in one frame with the region's center point (normalized,
     /// TOP-LEFT origin) for player association.
-    static func read(in pixelBuffer: CVPixelBuffer, maxCount: Int = 8) -> [(point: CGPoint, digits: String)] {
+    static func read(in pixelBuffer: CVPixelBuffer, maxCount: Int = 8) -> [(box: CGRect, digits: String)] {
         let regions = ObjectDetector.unified?.detect(labels: ["number"], in: pixelBuffer,
                                                      maxCount: maxCount, minConfidence: 0.3)
             .map(\.box) ?? []
@@ -19,10 +20,10 @@ enum NumberReader {
 
     /// OCR inside already-detected `number` regions (the engine passes the
     /// tick's unified `number` boxes — no second model call).
-    static func read(regions: [CGRect], in pixelBuffer: CVPixelBuffer) -> [(point: CGPoint, digits: String)] {
+    static func read(regions: [CGRect], in pixelBuffer: CVPixelBuffer) -> [(box: CGRect, digits: String)] {
         guard !regions.isEmpty else { return [] }
 
-        var results: [(CGPoint, String)] = []
+        var results: [(CGRect, String)] = []
         for region in regions {
             // Pad the crop a little; convert top-left → Vision's bottom-left.
             let padded = region.insetBy(dx: -region.width * 0.2, dy: -region.height * 0.2)
@@ -45,7 +46,7 @@ enum NumberReader {
                 .joined()
             let digits = text.filter(\.isNumber)
             if (1...2).contains(digits.count) {
-                results.append((CGPoint(x: region.midX, y: region.midY), digits))
+                results.append((region, digits))
             }
         }
         return results

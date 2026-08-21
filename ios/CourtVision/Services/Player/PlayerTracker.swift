@@ -110,20 +110,27 @@ struct PlayerTracker {
         return tracks
     }
 
-    /// A jersey read lands on the track whose box contains the read's center
-    /// (nearest center on overlap) and bumps that digit string's tally.
-    /// A read landing on no track is dropped — scoreboard digits are not
-    /// jersey numbers.
-    mutating func assign(numbers: [(point: CGPoint, digits: String)]) {
+    /// A jersey read lands on the track whose box contains ≥ `numberIoS` of
+    /// the number REGION (intersection over the region's area — ref 02's
+    /// IoS matching, box edition; best containment wins, nearest center
+    /// breaks ties) and bumps that digit string's tally. A region not inside
+    /// any player box is dropped — scoreboard digits are not jersey numbers.
+    var numberIoS: CGFloat = 0.9
+
+    mutating func assign(numbers: [(box: CGRect, digits: String)]) {
         for number in numbers {
-            var bestIndex: Int?
-            var bestDistance = CGFloat.greatestFiniteMagnitude
-            for (i, track) in tracks.enumerated() where track.box.contains(number.point) {
-                let d = hypot(track.box.midX - number.point.x,
-                              track.box.midY - number.point.y)
-                if d < bestDistance { bestDistance = d; bestIndex = i }
+            var best: (index: Int, ios: CGFloat, d: CGFloat)?
+            for (i, track) in tracks.enumerated() {
+                let inter = track.box.intersection(number.box)
+                guard !inter.isNull, number.box.width > 0, number.box.height > 0 else { continue }
+                let ios = (inter.width * inter.height) / (number.box.width * number.box.height)
+                guard ios >= numberIoS else { continue }
+                let d = hypot(track.box.midX - number.box.midX, track.box.midY - number.box.midY)
+                if best == nil || ios > best!.ios || (ios == best!.ios && d < best!.d) {
+                    best = (i, ios, d)
+                }
             }
-            if let i = bestIndex { tracks[i].numberTally[number.digits, default: 0] += 1 }
+            if let best { tracks[best.index].numberTally[number.digits, default: 0] += 1 }
         }
     }
 }

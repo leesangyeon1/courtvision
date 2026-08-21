@@ -131,6 +131,31 @@ final class EngineTests: XCTestCase {
         XCTAssertEqual(m2.players.first { $0.box == self.player }?.missedTicks, 0)
     }
 
+    func testComputedTilesRoundRobinWhenCourtIsLocked() {
+        // Court locks on tick 1 (slow lane) → tiles replace the guessed band;
+        // consecutive far passes cycle tile 0, 1, 2.
+        var rois: [CGRect] = []
+        let detectors = Engine.Detectors(
+            unified: { _, roi in
+                if let roi { rois.append(roi) }
+                return [self.det(self.player, "player", 0.9), self.det(self.rim, "rim", 0.9)]
+            },
+            hoop: { _ in [] }, courtQuads: { _ in [self.quad] }, numbers: { _, _ in [] },
+            pose: { _, _, _ in nil }, torsoColor: { _, _ in nil })
+        var config = Engine.Config(tickHz: 8, slowEvery: 8, numberEvery: 4)
+        config.farEvery = 1                                       // far pass every tick
+        let e = Engine(config: config, detectors: detectors, calibration: nil, isGame: false,
+                       attackingTeam: "A", rimAnchors: [:], initialRims: ["A": rim])
+        for i in 0..<4 { _ = e.process(blank(), pts: Double(i) / 8) }
+        XCTAssertEqual(rois.count, 4)
+        XCTAssertEqual(rois[0], config.farBand)                   // tick 1: court not locked yet at far-pass time
+        XCTAssertNotEqual(rois[1], config.farBand)                // locked: computed tiles
+        XCTAssertNotEqual(rois[1], rois[2])                       // round-robin
+        XCTAssertNotEqual(rois[2], rois[3])
+        XCTAssertEqual(rois[1], e.tiles[0])
+        XCTAssertEqual(Set(e.tiles).count, e.tiles.count)
+    }
+
     func testGraceHidesOneTickFlickerButNotLongerGaps() {
         var present = true
         let detectors = Engine.Detectors(
