@@ -25,6 +25,18 @@ Principles that override everything else:
 - **One module, one branch**: `rim`, `ball`, `player`, `court`, integration
   on `dev`. Field-test a module before it graduates.
 
+## 0.1 Platforms and the Replay screen
+
+No login screen: the phone signs in silently (device account from
+`Config.swift`, else anonymous sign-in). One target, three platforms: iPhone, iPad (device family 1,2) and macOS via
+Mac Catalyst (`SUPPORTS_MACCATALYST`). Xcode destination "My Mac (Mac
+Catalyst)" runs the app on the Mac with breakpoints. **Replay** (film icon
+on Players, or "Replay a video…" on the login screen — no account needed):
+import a `.mov`/`.mp4` → the same `Engine` runs on its frames → the same
+overlay as Record (teams, numbers, rims, ball, refs), play/pause, 1× or max
+speed, tap to lock rims, "Teams ⇄", export `moments.json` / `events.json`.
+Headless twin: `EngineReplayTests` + `tools/render_moments.py`.
+
 ## 1. Architecture — a stack of small specialists
 
 One big model is a server-side idea. On-device, cost is
@@ -56,6 +68,12 @@ Swapping a model = replace the `.mlpackage`, adjust a label set, done.
 
 Raw boxes are never used directly:
 
+- **Two ends, tap to lock**: `RimTracker` holds end A and end B; first
+  tap → A, second → B, tap near an end moves it; one locked rim = that end
+  is in play, two = per-shot (ball's rim, else nearest to the shooter),
+  full-court homography.
+- **Teams by jersey color** (`TeamAssigner`): 2-means on chest color →
+  A blue / B red / referee black; "Teams ⇄" swaps.
 - **Continuity gate** (rim + ball): keep the candidate nearest the current
   track or the user's tap, reject anything beyond `within` — side hoops,
   second balls, round false positives can't steal a track. **A tap is

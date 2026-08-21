@@ -36,18 +36,20 @@ struct CourtVisionApp: App {
     }
 }
 
-/// Navigation routes for the auth-gated flow:
-/// Login → Players → NewSession → Calibration → Record → Summary.
+/// Navigation routes:
+/// Players → NewSession → Calibration → Record → Summary (and Replay).
 enum Route: Hashable {
     case newSession(Player)
     case calibration(Session)
     case record(Session, Calibration)
     case summary(Session)
+    /// Debug / verification: run the engine over an imported clip.
+    case replay
 
     /// Camera screens are landscape; everything else is portrait.
     var wantsLandscape: Bool {
         switch self {
-        case .calibration, .record: return true
+        case .calibration, .record, .replay: return true
         case .newSession, .summary: return false
         }
     }
@@ -77,7 +79,26 @@ struct RootView: View {
             if !Config.isConfigured {
                 SetupNoticeView()
             } else if supabase.userId == nil {
-                LoginView()
+                // No login screen: the session is being created silently.
+                NavigationStack(path: $flow.path) {
+                    VStack(spacing: 12) {
+                        if let error = supabase.authError {
+                            Text("Can't connect to Supabase").font(.headline)
+                            Text(error).font(.footnote).foregroundStyle(.secondary)
+                                .multilineTextAlignment(.center).padding(.horizontal)
+                            Button("Retry") { Task { await supabase.restoreSession() } }
+                        } else {
+                            ProgressView("Connecting…")
+                        }
+                        // Replay needs no account — the debug door.
+                        Button("Replay a video…") { flow.path.append(.replay) }
+                            .font(.footnote).padding(.top, 16)
+                    }
+                    .navigationDestination(for: Route.self) { route in
+                        if case .replay = route { ReplayView() }
+                    }
+                }
+                .environmentObject(flow)
             } else {
                 NavigationStack(path: $flow.path) {
                     PlayersView()
@@ -91,6 +112,8 @@ struct RootView: View {
                                 RecordView(session: session, calibration: calibration)
                             case .summary(let session):
                                 SessionSummaryView(session: session)
+                            case .replay:
+                                ReplayView()
                             }
                         }
                 }

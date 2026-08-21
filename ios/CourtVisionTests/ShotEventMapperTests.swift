@@ -41,6 +41,16 @@ final class ShotEventMapperTests: XCTestCase {
         XCTAssertEqual(ft.zone, .ft_line)
     }
 
+    func testFarEndShotIsMirroredIntoTheAttackedHalf() {
+        // Full-court fit: a corner three at the far hoop, (50-3, 94-7) → (3, 7) → left corner.
+        let row = ShotEventMapper.eventRow(shot(.made), court: CGPoint(x: 47, y: 87), session: session(.game),
+                                           sessionStartPts: 0, playerId: nil, team: "B", mirror: true)!
+        XCTAssertEqual(row.zone, .left_corner_3)
+        XCTAssertEqual(row.category, .three)
+        XCTAssertEqual(row.courtX, 3.0 / 50.0, accuracy: 1e-9)
+        XCTAssertEqual(row.courtY, 7.0 / 47.0, accuracy: 1e-9)
+    }
+
     func testAttemptKindProducesNoRow() {
         XCTAssertNil(ShotEventMapper.eventRow(shot(.attempt), court: CGPoint(x: 25, y: 20),
                                               session: session(.practice), sessionStartPts: 0, playerId: nil, team: nil))

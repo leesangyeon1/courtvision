@@ -1,9 +1,9 @@
 import Foundation
 import Supabase
 
-/// Thin wrapper over supabase-swift: auth, players/sessions CRUD, idempotent
-/// event upsert, and the server-derived aggregate views. Supabase IS the
-/// backend — there is no app server.
+/// Thin wrapper over supabase-swift: silent auth, players/sessions CRUD,
+/// idempotent event upsert, and the server-derived aggregate views. Supabase
+/// IS the backend — there is no app server.
 @MainActor
 final class SupabaseService: ObservableObject {
     static let shared = SupabaseService()
@@ -28,7 +28,7 @@ final class SupabaseService: ObservableObject {
             case .notConfigured:
                 return "Supabase is not configured — fill in Config.swift."
             case .emailConfirmationRequired:
-                return "Account created. Confirm the email we sent you, then sign in."
+                return "Device account created but the project requires email confirmation — confirm it once (or disable Confirm email in Supabase Auth)."
             }
         }
     }
@@ -40,30 +40,41 @@ final class SupabaseService: ObservableObject {
         }
     }
 
-    // MARK: - Auth (email / password)
+    // MARK: - Auth (silent — no login screen)
 
-    /// Restores a persisted session on launch, if any.
+    @Published private(set) var authError: String?
+
+    /// Signs in without any UI: restores a persisted session, else the
+    /// configured device account (created on first use), else an anonymous
+    /// user. Sets `authError` when none of that works (e.g. anonymous
+    /// sign-ins disabled in the project) — the app then shows a notice, never
+    /// fake data.
     func restoreSession() async {
         guard let client else { return }
-        userId = try? await client.auth.session.user.id
-    }
-
-    func signIn(email: String, password: String) async throws {
-        let session = try await db.auth.signIn(email: email, password: password)
-        userId = session.user.id
-    }
-
-    func signUp(email: String, password: String) async throws {
-        let response = try await db.auth.signUp(email: email, password: password)
-        guard let session = response.session else {
-            throw ServiceError.emailConfirmationRequired
+        if let id = try? await client.auth.session.user.id { userId = id; return }
+        do {
+            if !Config.SUPABASE_EMAIL.isEmpty, !Config.SUPABASE_PASSWORD.isEmpty {
+                do {
+                    let session = try await client.auth.signIn(email: Config.SUPABASE_EMAIL,
+                                                               password: Config.SUPABASE_PASSWORD)
+                    userId = session.user.id
+                } catch {
+                    // First run of a new device account: create it, then sign in.
+                    let response = try await client.auth.signUp(email: Config.SUPABASE_EMAIL,
+                                                                password: Config.SUPABASE_PASSWORD)
+                    guard let session = response.session else {
+                        throw ServiceError.emailConfirmationRequired
+                    }
+                    userId = session.user.id
+                }
+            } else {
+                let session = try await client.auth.signInAnonymously()
+                userId = session.user.id
+            }
+            authError = nil
+        } catch {
+            authError = error.localizedDescription
         }
-        userId = session.user.id
-    }
-
-    func signOut() async {
-        try? await client?.auth.signOut()
-        userId = nil
     }
 
     // MARK: - Players

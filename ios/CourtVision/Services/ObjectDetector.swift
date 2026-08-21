@@ -41,10 +41,20 @@ final class ObjectDetector {
     /// Every labeled detection in one frame above `minConfidence`, best
     /// first. ONE call per engine tick — modules filter this list by label
     /// set instead of each running the model.
+    /// `roi` (normalized, TOP-LEFT origin) restricts the pass to a region of
+    /// the frame — the model then sees that region at full input resolution
+    /// (a far-court band gets ~2× the pixels per player). Boxes come back in
+    /// full-frame coordinates.
     func detectAll(in pixelBuffer: CVPixelBuffer, minConfidence: Float,
-                   maxCount: Int = 64) -> [Detection] {
+                   maxCount: Int = 64, roi: CGRect? = nil) -> [Detection] {
         let request = VNCoreMLRequest(model: model)
         request.imageCropAndScaleOption = scaleOption
+        var visionROI: CGRect?
+        if let roi {
+            let r = CGRect(x: roi.origin.x, y: 1 - roi.origin.y - roi.height, width: roi.width, height: roi.height)
+            request.regionOfInterest = r
+            visionROI = r
+        }
         let handler = VNImageRequestHandler(cvPixelBuffer: pixelBuffer, orientation: .up)
         try? handler.perform([request])
         return Array((request.results as? [VNRecognizedObjectObservation] ?? [])
@@ -52,8 +62,12 @@ final class ObjectDetector {
                 guard let id = obs.labels.first?.identifier, obs.confidence >= minConfidence else {
                     return nil
                 }
-                return Detection.fromVision(label: id, confidence: obs.confidence,
-                                            visionBox: obs.boundingBox)
+                var box = obs.boundingBox                      // ROI-relative when an ROI was set
+                if let r = visionROI {
+                    box = CGRect(x: r.origin.x + box.origin.x * r.width, y: r.origin.y + box.origin.y * r.height,
+                                 width: box.width * r.width, height: box.height * r.height)
+                }
+                return Detection.fromVision(label: id, confidence: obs.confidence, visionBox: box)
             }
             .sorted { $0.confidence > $1.confidence }
             .prefix(maxCount))

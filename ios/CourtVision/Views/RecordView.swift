@@ -12,7 +12,6 @@ struct RecordView: View {
     let calibration: Calibration
     @EnvironmentObject private var flow: FlowModel
     @StateObject private var model = RecordModel()
-    @ObservedObject private var rimDetector = ManualRimDetector.shared
     @StateObject private var previewHolder = PreviewLayerHolder()
     @State private var busy = false
     @State private var errorMessage: String?
@@ -21,54 +20,14 @@ struct RecordView: View {
         ZStack {
             CameraPreviewView(camera: flow.camera, holder: previewHolder)
                 .overlay {
-                    // Rim rect is buffer-space (capture-device normalized,
+                    // Boxes are buffer-space (capture-device normalized,
                     // top-left origin); convert through the preview layer.
-                    Canvas { context, _ in
-                        guard let layer = previewHolder.layer else { return }
-                        for rim in rimDetector.rimRects {
-                            let rect = layer.layerRectConverted(fromMetadataOutputRect: rim)
-                            context.stroke(Path(rect), with: .color(
-                                model.trackState == .tracking ? .orange : .yellow), lineWidth: 3)
-                        }
-                        // Ball trail: fading dots ending in a circle on the
-                        // current position (same visual language as the rim).
-                        let samples = model.ballTrail
-                        for (i, sample) in samples.enumerated() {
-                            let vp = layer.layerPointConverted(fromCaptureDevicePoint: sample.point)
-                            let alpha = 0.25 + 0.75 * Double(i + 1) / Double(samples.count)
-                            let dot = CGRect(x: vp.x - 3, y: vp.y - 3, width: 6, height: 6)
-                            context.fill(Path(ellipseIn: dot), with: .color(.yellow.opacity(alpha)))
-                        }
-                        if let current = samples.last {
-                            let rect = layer.layerRectConverted(fromMetadataOutputRect: current.box)
-                            context.stroke(Path(ellipseIn: rect), with: .color(.yellow), lineWidth: 2)
-                        }
-                        // Player boxes (cyan): jersey number top-right,
-                        // action badge (SHOT/LAYUP/…) bottom-left.
-                        for player in model.players {
-                            let rect = layer.layerRectConverted(fromMetadataOutputRect: player.box)
-                            context.stroke(Path(rect), with: .color(.cyan), lineWidth: 2)
-                            if let number = player.number {
-                                context.draw(
-                                    Text("#\(number)")
-                                        .font(.caption.bold())
-                                        .foregroundStyle(.cyan),
-                                    at: CGPoint(x: rect.maxX - 2, y: rect.minY - 8),
-                                    anchor: .bottomTrailing
-                                )
-                            }
-                            if player.action != .none {
-                                context.draw(
-                                    Text(player.action.short)
-                                        .font(.caption2.bold())
-                                        .foregroundStyle(.orange),
-                                    at: CGPoint(x: rect.minX + 2, y: rect.maxY + 2),
-                                    anchor: .topLeading
-                                )
-                            }
-                        }
+                    if let layer = previewHolder.layer {
+                        MomentOverlay(players: model.players, referees: model.referees, rims: model.rims,
+                                      ballTrail: model.ballTrail,
+                                      rect: { layer.layerRectConverted(fromMetadataOutputRect: $0) },
+                                      point: { layer.layerPointConverted(fromCaptureDevicePoint: $0) })
                     }
-                    .allowsHitTesting(false)
                 }
                 .contentShape(Rectangle())
                 .onTapGesture { location in
@@ -107,6 +66,10 @@ struct RecordView: View {
                             }
                             .buttonStyle(.bordered)
                             .disabled(busy)
+                            // Jersey clusters: which color is team A.
+                            Button("Teams ⇄") { model.swapTeams() }
+                                .buttonStyle(.bordered)
+                                .disabled(busy)
                         }
                         Button(busy ? "Ending…" : "End Session") { endSession() }
                             .buttonStyle(.borderedProminent)
@@ -175,6 +138,9 @@ final class RecordModel: ObservableObject {
     @Published var ballTrail: [BallTrack.Sample] = []
     @Published var playerStatus = "Players: —"
     @Published var players: [Moment.PlayerState] = []
+    @Published var referees: [CGRect] = []
+    /// Locked rims by end — the overlay draws these (orange, lettered).
+    @Published var rims: [String: CGRect] = [:]
     /// Engine cost per tick — the P0 cost table and the thermal watch.
     @Published var tickStatus = ""
     @Published var shotCount = 0
@@ -195,13 +161,19 @@ final class RecordModel: ObservableObject {
         engine?.attackingTeam = attackingTeam
     }
 
-    /// Tap = "track THIS hoop".
+    /// Tap = "track THIS hoop" — first tap end A, second tap end B, a tap
+    /// near an existing end moves that end.
     func designateRim(at point: CGPoint) {
         guard let engine else { return }
         engine.designateRim(at: point)
-        if let rim = engine.rim.rim { ManualRimDetector.shared.rimRects = [rim] }
+        rims = engine.rim.rims
+        ManualRimDetector.shared.rimRects = RimTracker.endIds.compactMap { rims[$0] }
         trackState = .tracking
         trackingNote = nil
+    }
+
+    func swapTeams() {
+        engine?.teamsSwapped.toggle()
     }
 
     func start(session: Session, calibration: Calibration,
@@ -210,9 +182,12 @@ final class RecordModel: ObservableObject {
         guard loopTask == nil else { return }
         self.session = session
         self.attackingTeam = attackingTeam
+        // Rims persisted by the calibration screen seed the ends in order (A, B).
+        var seeded: [String: CGRect] = [:]
+        for (end, rim) in zip(RimTracker.endIds, ManualRimDetector.shared.rimRects) { seeded[end] = rim }
         let engine = Engine(calibration: calibration, isGame: session.mode == .game,
                             attackingTeam: attackingTeam, rimAnchors: rimAnchors,
-                            initialRim: ManualRimDetector.shared.rimRects.first)
+                            initialRims: seeded)
         self.engine = engine
         if engine.court.h != nil { courtStatus = "Court: fixed from calibration" }
         if session.mode == .game {
@@ -253,10 +228,14 @@ final class RecordModel: ObservableObject {
         playerStatus = "Players: \(m.players.count)"
         tickStatus = String(format: "%.0f ms", tickMs)
         if engine.attackingTeam != attackingTeam { attackingTeam = engine.attackingTeam }
-        trackState = engine.rim.state
-        trackingNote = trackState == .reacquiring ? "Re-acquiring hoop… hold steady" : nil
-        if let rim = m.rim, ManualRimDetector.shared.rimRects != [rim] {
-            ManualRimDetector.shared.rimRects = [rim]
+        referees = m.referees
+        rims = m.rims
+        let reacquiring = RimTracker.endIds.filter { engine.rim.state(of: $0) == .reacquiring }
+        trackState = reacquiring.isEmpty ? .tracking : .reacquiring
+        trackingNote = reacquiring.isEmpty ? nil : "Re-acquiring hoop \(reacquiring.joined(separator: "+"))… hold steady"
+        let persisted = RimTracker.endIds.compactMap { m.rims[$0] }
+        if !persisted.isEmpty, ManualRimDetector.shared.rimRects != persisted {
+            ManualRimDetector.shared.rimRects = persisted
         }
         if let fit = engine.court.fitFt {
             courtStatus = "Court: live (fit \(Int(fit.rounded())) ft)"
@@ -302,12 +281,16 @@ final class RecordModel: ObservableObject {
     }
 
     private func emit(_ e: ShotEvent, court: CGPoint) {
-        guard let session, let start = sessionStartPts else { return }
+        guard let session, let start = sessionStartPts, let engine else { return }
         let number = players.first { $0.trackId == e.trackId }?.number
         let playerId = session.mode == .game ? number.flatMap { roster[$0] } : session.playerId
+        // Team = the end the shot went at (falls back to the end in play).
+        let end = e.end ?? attackingTeam
+        let mirror = engine.lastMoment?.farEnds.contains(end) ?? false
         guard let row = ShotEventMapper.eventRow(e, court: court, session: session, sessionStartPts: start,
                                                  playerId: playerId,
-                                                 team: session.mode == .game ? attackingTeam : nil)
+                                                 team: session.mode == .game ? end : nil,
+                                                 mirror: mirror)
         else { return }
         OfflineQueue.shared.enqueue(row)
         shotCount += 1

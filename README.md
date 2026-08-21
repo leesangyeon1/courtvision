@@ -39,6 +39,10 @@ No servers to run: aggregates are Postgres **views**, live updates are Supabase
    VITE_SUPABASE_ANON_KEY=<anon key>
    ```
 3. iOS: set the same URL + anon key in `ios/CourtVision/Config.swift`.
+   The app has no login screen: set `SUPABASE_EMAIL`/`SUPABASE_PASSWORD`
+   there for a device account the dashboard can log into too, or leave them
+   empty and enable **Allow anonymous sign-ins** (Supabase → Auth →
+   Providers) — then each phone is its own user.
 
 ## Run
 

@@ -8,7 +8,7 @@ import Foundation
 ///
 /// Used to map normalized camera-view points onto court feet coordinates
 /// from the tapped calibration landmarks.
-struct Homography: Hashable {
+struct Homography: Hashable, Codable {
     /// Row-major 3×3 matrix with h33 normalized to 1.
     let m: [Double]
 

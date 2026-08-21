@@ -1,9 +1,10 @@
 import CoreGraphics
 
 /// Continuous court estimate (COURT MODULE) on the engine clock: each slow
-/// tick the rectangle candidates are scored against the tracked rim and the
+/// tick the rectangle candidates are scored against the locked rims and the
 /// best fit replaces the homography. Never a hard lock — the camera pans all
-/// game. In game mode a far quad jump = the camera swung to the other hoop.
+/// game. One rim → half-court fit; two rims → full-court fit (both hoops
+/// score). Which end is in play is the rim tracker's call, not the court's.
 struct CourtEstimator {
     private(set) var h: Homography?
     /// Last accepted image quad [near-left, far-left, near-right, far-right].
@@ -12,14 +13,11 @@ struct CourtEstimator {
     private(set) var courtPoints: [CGPoint] = []
     /// Mean rim-projection error of the accepted fit, feet (nil = seeded only).
     private(set) var fitFt: Double?
-    private var lastFlipPts: Double = -.infinity
+    /// True when the accepted fit maps to the full 94-ft court (two rims).
+    private(set) var fullCourt = false
 
-    /// Accept a fit only when the rim projects within this many feet of the hoop.
+    /// Accept a fit only when the rims project within this many feet of the hoops.
     var maxFitFt: Double = 15
-    /// Mean corner move (fraction of frame) that counts as "swung to the other end".
-    var jumpDelta: CGFloat = 0.2
-    /// Seconds between flips while the pan settles.
-    var flipCooldown: Double = 5
 
     init(calibration: Calibration?) {
         h = calibration.flatMap { Homography(matrix: $0.homography) }
@@ -28,29 +26,20 @@ struct CourtEstimator {
         } ?? []
     }
 
-    /// Returns true when the court jumped far enough to mean a possession
-    /// switch (game mode only) — the caller flips the attacking team.
-    mutating func update(quadCandidates: [[CGPoint]], rim: CGRect?, isGame: Bool, pts: Double) -> Bool {
-        guard let rim,
-              let best = CourtFinder.bestQuad(candidates: quadCandidates, rims: [rim], fullCourt: false),
+    /// Returns true when a new fit was accepted this tick.
+    @discardableResult
+    mutating func update(quadCandidates: [[CGPoint]], rims: [CGRect]) -> Bool {
+        guard !rims.isEmpty else { return false }
+        let full = rims.count >= 2
+        guard let best = CourtFinder.bestQuad(candidates: quadCandidates, rims: rims, fullCourt: full),
               best.score <= maxFitFt,
-              let pick = CourtFinder.scoreCourtAssignments(quad: best.quad, rims: [rim], fullCourt: false),
+              let pick = CourtFinder.scoreCourtAssignments(quad: best.quad, rims: rims, fullCourt: full),
               let fit = Homography(from: best.quad, to: pick.courtPoints) else { return false }
-
-        var flipped = false
-        if isGame, !quad.isEmpty {
-            let meanDelta = zip(best.quad, quad)
-                .map { hypot($0.x - $1.x, $0.y - $1.y) }
-                .reduce(0, +) / CGFloat(quad.count)
-            if meanDelta > jumpDelta, pts - lastFlipPts > flipCooldown {
-                flipped = true
-                lastFlipPts = pts
-            }
-        }
         h = fit
         quad = best.quad
         courtPoints = pick.courtPoints
         fitFt = best.score
-        return flipped
+        fullCourt = full
+        return true
     }
 }

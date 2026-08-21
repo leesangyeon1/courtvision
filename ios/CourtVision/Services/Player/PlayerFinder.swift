@@ -66,18 +66,25 @@ enum PlayerFinder {
     /// so the preferred detection of an overlapping pair survives. Two tests
     /// per pair: IoU (same-size duplicates) and intersection-over-smaller
     /// (a torso/head fragment sitting inside the body box — IoU is small
-    /// there, containment is not).
-    /// ponytail: containment also swallows a far player fully inside a near
-    /// player's box; a mask-based split is the upgrade if that shows up.
+    /// there, containment is not). A contained box that is narrow or
+    /// off-center is a *person standing behind*, not a fragment — it stays
+    /// (gym clip: 91 fragments vs 12 people, docs/EVAL.md).
     static func dedupe(_ detections: [Detection], iouThreshold: CGFloat = 0.45,
                        containmentThreshold: CGFloat = 0.75) -> [Detection] {
         var kept: [Detection] = []
         for d in detections where !kept.contains(where: {
-            iou($0.box, d.box) > iouThreshold || containment($0.box, d.box) >= containmentThreshold
+            iou($0.box, d.box) > iouThreshold || isFragment(d.box, of: $0.box, threshold: containmentThreshold)
         }) {
             kept.append(d)
         }
         return kept
+    }
+
+    /// `small` is a fragment of `big`: mostly inside it, about as wide, and
+    /// centered on it. Narrow / offset contained boxes are other people.
+    static func isFragment(_ small: CGRect, of big: CGRect, threshold: CGFloat) -> Bool {
+        guard containment(big, small) >= threshold else { return false }
+        return small.width >= 0.6 * big.width && abs(small.midX - big.midX) <= 0.25 * big.width
     }
 
     /// Intersection over the SMALLER box's area (0…1).

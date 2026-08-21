@@ -19,10 +19,13 @@ enum RosterMap {
 /// simulate_session.py); nothing is reimplemented here.
 enum ShotEventMapper {
     /// `sessionStartPts` is the first engine tick's pts; `ts` is ms since then.
+    /// `mirror`: the shot targeted the far hoop of a full-court fit — fold it
+    /// into the attacked hoop's half (contract: coords relative to that half).
     static func eventRow(_ e: ShotEvent, court: CGPoint, session: Session, sessionStartPts: Double,
-                         playerId: UUID?, team: String?) -> EventRow? {
+                         playerId: UUID?, team: String?, mirror: Bool = false) -> EventRow? {
         guard e.kind != .attempt else { return nil }
-        let x = Double(court.x), y = Double(court.y)
+        var x = Double(court.x), y = Double(court.y)
+        if mirror { x = ZoneMapper.courtWidthFt - x; y = ZoneMapper.fullCourtLengthFt - y }
         let freeThrow = session.mode == .freethrow
         let n = ZoneMapper.normalized(xFt: x, yFt: y)
         return EventRow(
