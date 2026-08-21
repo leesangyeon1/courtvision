@@ -80,4 +80,21 @@ final class HomographyTests: XCTestCase {
         XCTAssertEqual(Double(p.x), 25, accuracy: 0.5)
         XCTAssertEqual(Double(p.y), 70, accuracy: 1.0)
     }
+
+    func testInvertedRoundTrip() {
+        // Real perspective fit: image quad → court corners, then back.
+        let src = [CGPoint(x: 0.1, y: 0.9), CGPoint(x: 0.1, y: 0.1),
+                   CGPoint(x: 0.9, y: 0.9), CGPoint(x: 0.9, y: 0.1)]
+        let dst = [CGPoint(x: 0, y: 0), CGPoint(x: 50, y: 0),
+                   CGPoint(x: 0, y: 94), CGPoint(x: 50, y: 94)]
+        let h = Homography(from: src, to: dst)!
+        let inv = h.inverted()!
+        for p in [CGPoint(x: 25, y: 5.25), CGPoint(x: 25, y: 88.75), CGPoint(x: 3, y: 47)] {
+            let back = h.apply(inv.apply(p))
+            XCTAssertEqual(Double(back.x), Double(p.x), accuracy: 1e-6)
+            XCTAssertEqual(Double(back.y), Double(p.y), accuracy: 1e-6)
+        }
+        // Singular matrix has no inverse.
+        XCTAssertNil(Homography(matrix: [1, 2, 3, 2, 4, 6, 0, 0, 1])?.inverted() ?? nil)
+    }
 }

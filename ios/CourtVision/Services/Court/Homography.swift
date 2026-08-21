@@ -62,6 +62,23 @@ struct Homography: Hashable, Codable {
         m = h
     }
 
+    /// Inverse homography (court → image when self maps image → court), via
+    /// the adjugate. Nil when the matrix is singular.
+    func inverted() -> Homography? {
+        let a = m
+        let c0 = a[4] * a[8] - a[5] * a[7]
+        let c1 = a[5] * a[6] - a[3] * a[8]
+        let c2 = a[3] * a[7] - a[4] * a[6]
+        let det = a[0] * c0 + a[1] * c1 + a[2] * c2
+        guard abs(det) > 1e-12 else { return nil }
+        let inv = [
+            c0 / det, (a[2] * a[7] - a[1] * a[8]) / det, (a[1] * a[5] - a[2] * a[4]) / det,
+            c1 / det, (a[0] * a[8] - a[2] * a[6]) / det, (a[2] * a[3] - a[0] * a[5]) / det,
+            c2 / det, (a[1] * a[6] - a[0] * a[7]) / det, (a[0] * a[4] - a[1] * a[3]) / det,
+        ]
+        return Homography(matrix: inv)
+    }
+
     /// Projective transform of a point (homogeneous divide).
     func apply(_ p: CGPoint) -> CGPoint {
         let x = Double(p.x), y = Double(p.y)
