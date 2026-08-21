@@ -227,6 +227,18 @@ final class Engine {
         return moment
     }
 
+    /// The tripod moved (gyro bump): rims and court fit are image-space
+    /// artifacts of a camera position that no longer exists. Everything
+    /// derived from it is dropped; the user re-taps the hoops.
+    func cameraMoved() {
+        lock.withLock {
+            rim.invalidate(pts: max(lastTickPts, 0))
+            court.invalidate()
+            tiles = []
+            tileIndex = 0
+        }
+    }
+
     /// Tap on the preview = "track THIS hoop" (see `RimTracker.designate`).
     /// Returns the end the tap went to.
     @discardableResult

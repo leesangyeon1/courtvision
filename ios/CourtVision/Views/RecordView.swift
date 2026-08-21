@@ -150,6 +150,7 @@ final class RecordModel: ObservableObject {
     private var engine: Engine?
     private var session: Session?
     private var loopTask: Task<Void, Never>?
+    private let tripod = TripodWatch()
     private var lastPersistPts: Double = -.infinity
     private var sessionStartPts: Double?
     private var roster: [String: UUID] = [:]
@@ -197,6 +198,14 @@ final class RecordModel: ObservableObject {
             }
         }
 
+        tripod.start { [weak self] in
+            guard let self, let engine = self.engine else { return }
+            engine.cameraMoved()
+            self.rims = [:]
+            self.courtStatus = "Court: camera moved"
+            self.trackingNote = "Camera moved — tap the hoops to recalibrate"
+        }
+
         let frames = camera.makeFrames()
         loopTask = Task.detached(priority: .userInitiated) { [weak self] in
             var shots = ShotEventTracker()
@@ -215,6 +224,7 @@ final class RecordModel: ObservableObject {
     }
 
     func stop() {
+        tripod.stop()
         loopTask?.cancel()
         loopTask = nil
     }
