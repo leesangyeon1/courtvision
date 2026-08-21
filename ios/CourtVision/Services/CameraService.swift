@@ -15,7 +15,7 @@ enum CameraError: LocalizedError {
     }
 }
 
-/// Back-camera capture at 1080p, 60 fps when the active format supports it.
+/// Back-camera capture at 4K (1080p fallback), 60 fps when the format allows.
 /// Frames are exposed as an AsyncStream<CMSampleBuffer> (single consumer: the
 /// record pipeline) and as an AVCaptureVideoPreviewLayer for the UI.
 final class CameraService: NSObject {
@@ -68,7 +68,13 @@ final class CameraService: NSObject {
         captureSession.beginConfiguration()
         defer { captureSession.commitConfiguration() }
 
-        if captureSession.canSetSessionPreset(.hd1920x1080) {
+        // Fixed full-court camera: the frame never gets closer, so capture
+        // resolution is the only source of far-player pixels. 4K + computed
+        // ROI tiles ≈ 3× the pixels per far player vs 1080p (spec
+        // 2026-08-21; 4K alone gains nothing — the model input is 960).
+        if captureSession.canSetSessionPreset(.hd4K3840x2160) {
+            captureSession.sessionPreset = .hd4K3840x2160
+        } else if captureSession.canSetSessionPreset(.hd1920x1080) {
             captureSession.sessionPreset = .hd1920x1080
         }
 
