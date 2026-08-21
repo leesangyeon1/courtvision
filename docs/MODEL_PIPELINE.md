@@ -83,11 +83,15 @@ the brightness rule guesses wrong. Ref 02's SigLIP → UMAP → K-means, reduced
 to what a phone needs.
 
 ### Far lane (recall at distance)
-A court-level camera puts the far court in the upper-middle of the frame
-where a player is ~20 px after the 960 letterbox. Every `farEvery` ticks the
-unified model runs a second time on that band (`Engine.Config.farBand`,
-Vision ROI) — ~2× pixels per far player, +2 people/tick on the gym clip —
-and its boxes merge into the same tick (ball / numbers / rim benefit too).
+A fixed full-court camera never gets closer: a far player is ~20 px after
+the 960 letterbox. Every `farEvery` ticks the unified model runs a second
+time on ONE far ROI (Vision ROI) and its boxes merge into the same tick.
+The ROIs are **computed tiles**: once the court fit locks, the court length
+is split into `tileCount` zones in feet and each zone's corners project back
+through H⁻¹ (`CourtEstimator.tiles`); far passes round-robin the tiles
+(A→B→C…). Until the fit locks, the guessed `farBand` fills in. Capture is
+4K so a 1280-px-wide tile reaches the model at ~0.75× scale (4K alone gains
+nothing — the input is 960 either way).
 
 ### Track identity (lock)
 `PlayerTracker` associates by IoU, else by center distance ≤ 0.75 × body
@@ -119,7 +123,17 @@ The rim is occluded by players constantly. Rim-lost only triggers
 reacquisition after **4 s** without a sighting; a big rim jump (>15% frame)
 triggers it immediately (camera is panning).
 
-### Court: continuous estimate, never a lock
+### Court: solve once, drift-check (fixed camera)
+The camera is on a tripod framing the full court (mid-sideline, elevated —
+the setup flow's job). `CourtEstimator` solves the fit once from rectangle
+candidates scored by rim consistency, then holds it; each slow tick only
+projects the locked rims through the stored H (3 consecutive >20 ft misses
+= the tripod moved → fit dropped, never used stale). `TripodWatch` (gyro)
+invalidates rims + fit + tiles on a physical bump; the user re-taps the
+hoops to recalibrate. Rims never reacquire from occlusion — a fixed
+camera's rim is where it was tapped.
+
+### Court (legacy, panning camera): continuous estimate, never a lock
 The camera pans every possession, so the court is re-estimated every tick:
 all rectangle candidates are scored by **rim-consistency** (project the
 detected rim through each candidate homography; the orientation that puts the

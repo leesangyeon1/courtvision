@@ -72,3 +72,18 @@ light (small, stationary) — hard negatives for the retrain, not tracker work.
 No court fix in 60 s (rectangles) — the keypoint court model (P2) is the fix.
 `tickHz` is now really 6 in `Engine.Config` (the earlier commit missed the
 code; docs said 6, code said 8).
+
+## Fixed camera, full court (branch `fullcourt`, spec 2026-08-21) — gates
+
+Code landed: 4K capture, solve-once + drift court fit, computed round-robin
+tiles, IoS jersey matching, fixed rims (no reacquire), tripod-bump watch,
+tools/clean_paths.py. Awaiting the fixture to measure:
+
+- [ ] Fixed full-court fixture recorded at 4K (60 s, mid-sideline, tripod)
+- [ ] Court fix rate (was 0 / 60 s on the gym clip) — target ≥ 95 % of ticks
+- [ ] Far-zone players/tick, 4K+tiles vs 1080p full frame, same clip
+- [ ] Distinct track ids / 60 s (was 51 at 11 players/tick median)
+- [ ] ms/tick median on device with the tiling lane (< 1000/tickHz, no
+      serious thermal at 10 min)
+- [ ] Jersey number accuracy before/after IoS matching
+- [ ] clean_paths outlier count + distance sanity on the fixture

@@ -32,3 +32,8 @@ the row. Stdlib only. Tests: `python3 -m unittest tools/test_eval_events.py`.
 `render_moments.py CLIP MOMENTS.json OUT.mp4` — draws the replay's Moments
 (teams, numbers, rims, ball, refs) onto the clip. `EngineReplayTests`'
 env-var replay writes `CLIP.moments.json` next to the clip. Needs `.venv`.
+
+`clean_paths.py MOMENTS.json [-o OUT]` — ref 02's path cleanup: speed-outlier
+removal (median+MAD, padded), linear interpolation, Savitzky-Golay smooth;
+per-track distance/avg speed. Post-session only. Needs `.venv`.
+Tests: `.venv/bin/python -m unittest tools/test_clean_paths.py`.
